@@ -268,6 +268,11 @@ export class Game {
       this.togglePause();
     }
 
+    // Defensive sync: if combat is active, always surface the combat view.
+    if (this.state.combatActive && this.phase !== 'combat' && this.phase !== 'levelup') {
+      this.setPhase('combat');
+    }
+
     if (this.phase === 'combat') {
       this.updateCombat(dt);
     }
@@ -712,7 +717,7 @@ export class Game {
       this.renderer.resize(this.canvas.width, this.canvas.height);
     }
 
-    if (this.phase === 'combat' || this.phase === 'levelup') {
+    if (this.phase === 'combat' || this.phase === 'levelup' || this.state.combatActive) {
       this.renderer.render(this.state, interp);
     }
   }
