@@ -94,13 +94,34 @@ export function processDamage(
     mitigated = Math.max(1, mitigated - reduction);
   }
 
-  // Apply player damage scalar for player/summon attacks
+  // Apply player damage scalar for player attacks and summon item bonuses
   if (attacker.faction === 'player' && attacker.type === 'player') {
     mitigated *= (attacker as PlayerEntity).damageScalar;
   }
+  if (attacker.faction === 'player' && attacker.type === 'summon') {
+    const hiveMind = state.player.items.find(i => i.def.id === 'hive_mind_crown');
+    if (hiveMind) mitigated *= 1.10;
+  }
 
   // 4. Damage application
-  const finalDamage = Math.round(mitigated);
+  let finalDamage = Math.round(mitigated);
+
+  if (target.type === 'player') {
+    const shield = (target as any)._barkShieldHp || 0;
+    if (shield > 0) {
+      const absorbed = Math.min(shield, finalDamage);
+      (target as any)._barkShieldHp = shield - absorbed;
+      finalDamage -= absorbed;
+      if (absorbed > 0) {
+        addCombatLog(state, {
+          type: 'trigger',
+          source: 'item',
+          details: `Bark Shield absorbed ${absorbed} damage`,
+        });
+      }
+    }
+  }
+
   target.hp -= finalDamage;
   target.flashMs = 150;
   target.animState = 'hit';
@@ -168,11 +189,49 @@ function processOnDamageTakenTriggers(
 ) {
   if (target.type === 'player') {
     const player = target as PlayerEntity;
+    (player as any)._secondsSinceHit = 0;
+
     // Spore Mantle
     const sporeMantle = player.passives.find(p => p.def.id === 'spore_mantle');
     if (sporeMantle && sporeMantle.active) {
       // Spawn poison cloud (handled by effect system)
     }
+
+    // Guardian Bark Amulet (emergency shield)
+    const barkAmulet = player.items.find(i => i.def.id === 'guardian_bark_amulet');
+    if (barkAmulet) {
+      const cd = (player as any)._barkShieldCooldown || 0;
+      if (player.hp / player.maxHp <= 0.3 && cd <= 0 && !(player as any)._barkShieldHp) {
+        (player as any)._barkShieldHp = 25;
+        (player as any)._barkShieldCooldown = 60;
+        addCombatLog(state, {
+          type: 'trigger',
+          source: 'item',
+          details: 'Guardian Bark Amulet triggered (25 shield)',
+        });
+      }
+    }
+
+    // Bramble Heart flat reflect
+    const brambleHeart = player.items.find(i => i.def.id === 'bramble_heart');
+    const brambleCd = (player as any)._brambleCd || 0;
+    if (brambleHeart && attacker.faction === 'enemy' && brambleCd <= 0) {
+      const reflectDmg = 6;
+      attacker.hp -= reflectDmg;
+      (player as any)._brambleCd = 0.5;
+      addCombatLog(state, {
+        type: 'trigger',
+        source: 'item',
+        details: `Bramble Heart reflected ${reflectDmg} damage`,
+      });
+      if (attacker.hp <= 0) {
+        attacker.hp = 0;
+        attacker.alive = false;
+        attacker.animState = 'death';
+        attacker.deathAnimMs = 500;
+      }
+    }
+
     // Thorned Hide
     const thornedHide = player.passives.find(p => p.def.id === 'thorned_hide');
     if (thornedHide && thornedHide.active && attacker.faction === 'enemy') {
@@ -201,6 +260,22 @@ function processOnHitTriggers(
     if (venomweave && target.type === 'enemy') {
       const enemy = target as EnemyEntity;
       enemy.poisonStacks = Math.min(HARD_CAPS.maxPoisonStacks, enemy.poisonStacks + 1);
+    }
+
+    const sporeSac = player.items.find(i => i.def.id === 'spore_sac');
+    if (sporeSac && target.type === 'enemy') {
+      const enemy = target as EnemyEntity;
+      if (enemy.poisonStacks >= HARD_CAPS.maxPoisonStacks) {
+        enemy.hp -= 30;
+        enemy.flashMs = 200;
+        addCombatLog(state, {
+          type: 'trigger',
+          source: 'item',
+          target: enemy.id,
+          value: 30,
+          details: `Spore Sac detonated on ${enemy.id} (30)` ,
+        });
+      }
     }
   }
 }
@@ -496,6 +571,9 @@ export function cleanupEntities(state: RunState) {
 
 // --- Timer updates ---
 export function updateTimers(state: RunState, dt: number) {
+  (state.player as any)._brambleCd = Math.max(0, ((state.player as any)._brambleCd || 0) - dt);
+  (state.player as any)._barkShieldCooldown = Math.max(0, ((state.player as any)._barkShieldCooldown || 0) - dt);
+
   const updateEntity = (e: Entity) => {
     if (e.invulnMs > 0) e.invulnMs -= dt * 1000;
     if (e.flashMs > 0) e.flashMs -= dt * 1000;

@@ -169,6 +169,9 @@ export class Game {
     this.enemyTurnTimer = 0;
     this.state.player.pos = { x: 0, y: 100 };
     this.state.player.vel = { x: 0, y: 0 };
+    (this.state.player as any)._packleaderStacks = 0;
+    (this.state.player as any)._firstSummonId = '';
+    (this.state.player as any)._moonboneBoost = 0;
 
     spawnEnemiesForNode(this.state, type, this.state.floor, this.rng);
     this.setPhase('combat');
@@ -325,6 +328,7 @@ export class Game {
 
   private updateCombat(dt: number) {
     const player = this.state.player;
+    (player as any)._secondsSinceHit = ((player as any)._secondsSinceHit || 999) + dt;
     if (!player.alive) {
       this.state.runComplete = true;
       this.state.runWon = false;
@@ -389,11 +393,13 @@ export class Game {
       }
     }
 
-    const step = this.playerStepDistance;
+    const step = this.playerStepDistance * (1 + this.getItemStatBonus('move_speed'));
+    const prevPos = { ...player.pos };
     if (this.input.isActionJustPressed('moveUp')) {
       player.pos.y -= step;
       player.rotation = -Math.PI / 2;
       player.animState = 'move';
+      this.spawnTrailIfNeeded(prevPos);
       this.beginEnemyTurn();
       return true;
     }
@@ -401,6 +407,7 @@ export class Game {
       player.pos.y += step;
       player.rotation = Math.PI / 2;
       player.animState = 'move';
+      this.spawnTrailIfNeeded(prevPos);
       this.beginEnemyTurn();
       return true;
     }
@@ -408,6 +415,7 @@ export class Game {
       player.pos.x -= step;
       player.rotation = Math.PI;
       player.animState = 'move';
+      this.spawnTrailIfNeeded(prevPos);
       this.beginEnemyTurn();
       return true;
     }
@@ -415,6 +423,7 @@ export class Game {
       player.pos.x += step;
       player.rotation = 0;
       player.animState = 'move';
+      this.spawnTrailIfNeeded(prevPos);
       this.beginEnemyTurn();
       return true;
     }
@@ -454,6 +463,33 @@ export class Game {
     }
 
     return false;
+  }
+
+  private spawnTrailIfNeeded(pos: Vec2) {
+    if (!this.hasItem('wild_stride_boots')) return;
+    const hazard: any = {
+      id: `trail_${Date.now()}_${Math.random()}`,
+      type: 'hazard',
+      pos: { ...pos },
+      vel: { x: 0, y: 0 },
+      hp: 1, maxHp: 1,
+      radius: 16,
+      speed: 0,
+      faction: 'player',
+      tags: ['DOT', 'Physical'],
+      alive: true,
+      invulnMs: 0, flashMs: 0, deathAnimMs: 0,
+      animState: 'idle',
+      rotation: 0,
+      ownerId: 'player',
+      damage: 3,
+      tickRate: 0.4,
+      tickTimer: 0,
+      duration: 1.3,
+      maxDuration: 1.3,
+    };
+    this.state.entities.push(hazard);
+    if (this.renderer) this.renderer.spawnParticles(pos.x, pos.y, '#8bc34a', 4);
   }
 
   private beginEnemyTurn() {
@@ -503,6 +539,9 @@ export class Game {
       const enemy = e as any;
       const isBoss = enemy.def?.id?.startsWith('boss_');
       const isElite = !!enemy.eliteModifier;
+      if (isElite && this.hasItem('moonbone_charm')) {
+        (this.state.player as any)._moonboneBoost = 0.12;
+      }
 
       const xpType = isBoss ? 'boss' : isElite ? 'elite' : 'normal';
       const xp = XP_REWARDS[xpType];
@@ -566,6 +605,23 @@ export class Game {
       source: 'player',
       details: `Used skill: ${def.name}`,
     });
+
+    if (this.hasItem('echo_seed') && this.rng.chance(0.15)) {
+      const dir = { x: Math.cos(player.rotation), y: Math.sin(player.rotation) };
+      const echo: ProjectileEntity = {
+        id: `echo_${Date.now()}_${Math.random()}`,
+        type: 'projectile',
+        pos: { x: player.pos.x + dir.x * 15, y: player.pos.y + dir.y * 15 },
+        vel: { x: dir.x * 260, y: dir.y * 260 },
+        hp: 1, maxHp: 1, radius: 4, speed: 260, faction: 'player',
+        tags: ['Projectile', 'Nature'], alive: true,
+        invulnMs: 0, flashMs: 0, deathAnimMs: 0, animState: 'idle', rotation: player.rotation,
+        ownerId: 'player', damage: 4 * player.damageScalar, piercing: false, lifetime: 1.1, maxLifetime: 1.1, hitEntities: new Set(),
+      };
+      this.state.entities.push(echo);
+      if (this.renderer) this.renderer.spawnParticles(player.pos.x, player.pos.y, '#b39ddb', 6);
+      addCombatLog(this.state, { type: 'trigger', source: 'item', details: 'Echo Seed duplicated a weakened cast' });
+    }
   }
 
   private spawnSummon(def: typeof this.state.player.skills[0]['def']) {
@@ -607,6 +663,30 @@ export class Game {
       attackCooldownRemaining: 0,
       attackRange: 28,
     };
+
+    // Item stat mods
+    const summonDamageBonus = this.getItemStatBonus('summon_damage');
+    if (summonDamageBonus > 0) {
+      const moonboneBoost = (player as any)._moonboneBoost ? summonDamageBonus : 0;
+      summon.damage *= (1 + summonDamageBonus + moonboneBoost);
+    }
+    const totemDurationBonus = this.getItemStatBonus('totem_duration');
+    if (totemDurationBonus > 0 && def.tags.includes('Totem')) {
+      summon.duration *= (1 + totemDurationBonus);
+      summon.maxDuration = summon.duration;
+    }
+
+    if (this.hasItem('packleader_fang')) {
+      const stacks = (player as any)._packleaderStacks || 0;
+      const firstSummonId = (player as any)._firstSummonId as string;
+      if (!firstSummonId) {
+        (player as any)._firstSummonId = summon.id;
+      } else if (firstSummonId) {
+        const first = this.state.entities.find(e => e.id === firstSummonId && e.type === 'summon' && e.alive) as SummonEntity | undefined;
+        if (first) first.damage += 5;
+      }
+      (player as any)._packleaderStacks = stacks + 1;
+    }
 
     // Apply Alpha Bond
     const alphaBond = player.passives.find(p => p.def.id === 'alpha_bond');
@@ -672,7 +752,7 @@ export class Game {
 
   private useAoeSkill(def: typeof this.state.player.skills[0]['def']) {
     const player = this.state.player;
-    const radius = def.aoeRadius || 48;
+    const radius = (def.aoeRadius || 48) * (1 + this.getItemStatBonus('aoe_radius'));
 
     // If ranged, place at mouse position; if melee, at player
     let center = { ...player.pos };
@@ -767,6 +847,23 @@ export class Game {
     player.invulnMs = 200;
   }
 
+
+  private hasItem(itemId: string): boolean {
+    return this.state.player.items.some(i => i.def.id === itemId);
+  }
+
+  private getItemStatBonus(stat: string): number {
+    let total = 0;
+    this.state.player.items.forEach(item => {
+      item.def.effects.forEach(effect => {
+        if (effect.type === 'stat_mod' && effect.stat === stat) {
+          total += effect.value || 0;
+        }
+      });
+    });
+    return total;
+  }
+
   private updatePeriodicEffects(dt: number) {
     const player = this.state.player;
 
@@ -785,6 +882,23 @@ export class Game {
       } else {
         this.periodicTimers.set('verdant_pulse', timer);
       }
+    }
+
+    // Living Moss Shield
+    if (this.hasItem('living_moss_shield')) {
+      const timer = ((player as any)._mossTimer || 0) + dt;
+      (player as any)._mossTimer = timer;
+      if (timer >= 3) {
+        (player as any)._mossTimer = 0;
+        const sinceHit = (player as any)._secondsSinceHit || 999;
+        const heal = sinceHit >= 5 ? 4 : 2;
+        player.hp = Math.min(player.maxHp, player.hp + heal);
+      }
+    }
+
+    // Moonbone elite-kill burst decay
+    if ((player as any)._moonboneBoost > 0) {
+      (player as any)._moonboneBoost = Math.max(0, (player as any)._moonboneBoost - dt * 0.06);
     }
 
     // Feral Momentum decay

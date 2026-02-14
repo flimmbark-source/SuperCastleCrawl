@@ -207,6 +207,16 @@ export class Renderer {
     ctx.fill();
     ctx.stroke();
 
+    // Bark shield visual ring
+    const barkShield = (player as any)._barkShieldHp || 0;
+    if (barkShield > 0) {
+      ctx.strokeStyle = 'rgba(139, 195, 74, 0.7)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x, y, player.radius + 6, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
     // Direction indicator
     ctx.fillStyle = '#fff';
     const dirX = x + Math.cos(player.rotation) * player.radius * 0.5;
