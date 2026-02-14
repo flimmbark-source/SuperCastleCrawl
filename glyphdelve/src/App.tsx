@@ -122,7 +122,7 @@ const App: React.FC = () => {
       {state && (phase === 'combat' || phase === 'levelup') && (
         <>
           <HUD player={state.player} state={state} floor={state.floor} nodeIndex={state.currentNodeIndex} />
-          <SidePanel state={state} />
+          <SidePanel state={state} onUseInventoryItem={(itemId) => gameRef.current?.useInventoryItem(itemId)} />
         </>
       )}
 

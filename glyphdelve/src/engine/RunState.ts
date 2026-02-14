@@ -37,6 +37,7 @@ export function createPlayer(): PlayerEntity {
     resource: 50,
     maxResource: 50,
     buildTags: new Map(),
+    inventory: [],
   };
 }
 

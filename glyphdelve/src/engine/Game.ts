@@ -265,6 +265,42 @@ export class Game {
     this.setPhase('build_summary');
   }
 
+  useInventoryItem(itemId: string) {
+    const idx = this.state.player.inventory.findIndex(i => i.id === itemId);
+    if (idx < 0) return;
+
+    const item = this.state.player.inventory[idx];
+
+    if (item.effect === 'heal') {
+      const before = this.state.player.hp;
+      this.state.player.hp = Math.min(this.state.player.maxHp, this.state.player.hp + item.value);
+      const healed = Math.round(this.state.player.hp - before);
+      addCombatLog(this.state, {
+        type: 'heal',
+        source: 'inventory',
+        target: 'player',
+        value: healed,
+        details: `Used ${item.name} (+${healed} HP)`,
+      });
+    } else if (item.effect === 'resource') {
+      const before = this.state.player.resource;
+      this.state.player.resource = Math.min(this.state.player.maxResource, this.state.player.resource + item.value);
+      const gained = Math.round(this.state.player.resource - before);
+      addCombatLog(this.state, {
+        type: 'trigger',
+        source: 'inventory',
+        target: 'player',
+        value: gained,
+        details: `Used ${item.name} (+${gained} Resource)`,
+      });
+    }
+
+    item.charges -= 1;
+    if (item.charges <= 0) {
+      this.state.player.inventory.splice(idx, 1);
+    }
+  }
+
   // --- Main update ---
   private update(dt: number) {
     this.state.runTime += dt;

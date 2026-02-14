@@ -110,14 +110,19 @@ export function applyDrops(state: RunState, drops: DropResult) {
   }
 
   if (drops.consumable) {
-    // Heal for 20 HP
-    player.hp = Math.min(player.maxHp, player.hp + 20);
-    addCombatLog(state, {
-      type: 'heal',
-      source: 'consumable',
-      target: 'player',
+    player.inventory.push({
+      id: `consumable_${Date.now()}_${Math.random()}`,
+      name: 'Vial of Renewal',
+      description: 'A compact restorative draught carried into the delve.',
+      effect: 'heal',
       value: 20,
-      details: 'Used health consumable (+20 HP)',
+      charges: 1,
+    });
+
+    addCombatLog(state, {
+      type: 'drop',
+      source: 'enemy',
+      details: 'Found consumable: Vial of Renewal (+20 HP on use)',
     });
   }
 }

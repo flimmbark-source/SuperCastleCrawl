@@ -219,6 +219,7 @@ export interface PlayerEntity extends Entity {
   resource: number;
   maxResource: number;
   buildTags: Map<Tag, number>;
+  inventory: InventoryItem[];
 }
 
 export interface ActiveSkill {
@@ -237,6 +238,15 @@ export interface ActiveItem {
   def: ItemDef;
   modifiers: ModifierDef[];
   melded: boolean;
+}
+
+export interface InventoryItem {
+  id: string;
+  name: string;
+  description: string;
+  effect: 'heal' | 'resource' | 'cleanse';
+  value: number;
+  charges: number;
 }
 
 export interface EnemyEntity extends Entity {
