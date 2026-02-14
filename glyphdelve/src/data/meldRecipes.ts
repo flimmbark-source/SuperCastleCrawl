@@ -77,6 +77,7 @@ export const meldedSkills = [
   {
     id: 'meld_skill_entangling_pack',
     name: 'Entangling Pack',
+    icon: '\u{1F43A}', // wolf
     description: 'Summon vine-wrapped wolves that create thorn zones wherever they attack.',
     tags: ['Summon', 'Nature', 'AOE', 'DOT', 'Melee'] as const,
     triggerSentence: 'When cast, summon wolves that leave vine patches on attack, slowing and damaging enemies.',
@@ -93,6 +94,7 @@ export const meldedSkills = [
   {
     id: 'meld_skill_toxic_swarm',
     name: 'Toxic Swarm',
+    icon: '\u{1F9EA}', // test tube (toxic)
     description: 'Release a swarm of poison spirits that orbit and apply stacks to nearby enemies.',
     tags: ['Poison', 'Spirit', 'AOE', 'Summon', 'DOT'] as const,
     triggerSentence: 'When cast, summon poison spirits that orbit, applying 2 poison stacks per second.',
@@ -111,6 +113,7 @@ export const meldedPassives = [
   {
     id: 'meld_passive_primal_hierarchy',
     name: 'Primal Hierarchy',
+    icon: '\u{1F451}', // crown
     description: 'Your strongest summon becomes the Alpha. Other summons gain power from its presence.',
     tags: ['Summon', 'Physical', 'Buff'] as const,
     triggerSentence: 'Strongest summon gains +40% all stats. Others gain +15% damage while Alpha lives.',
@@ -122,6 +125,7 @@ export const meldedPassives = [
   {
     id: 'meld_passive_reactive_bloom',
     name: 'Reactive Bloom',
+    icon: '\u{1F4A5}', // explosion
     description: 'When damaged, simultaneously release poison spores and thorn burst.',
     tags: ['Poison', 'Physical', 'OnDamageTaken', 'AOE'] as const,
     triggerSentence: 'When hit, emit poison cloud + thorn burst (combined 2s cooldown).',
@@ -136,6 +140,7 @@ export const meldedItems = [
   {
     id: 'meld_item_moonlit_totem',
     name: 'Moonlit Totem Staff',
+    icon: '\u{1F319}', // crescent moon
     description: 'Totems are empowered by moonlight, periodically summoning spirit wolves.',
     tags: ['Totem', 'Summon', 'Spirit', 'Nature'] as const,
     triggerSentence: 'Totems summon a spirit wolf every 8s. Summon damage +15%. Totem duration +30%.',
@@ -151,6 +156,7 @@ export const meldedItems = [
   {
     id: 'meld_item_blighted_thorns',
     name: 'Blighted Thorn Armor',
+    icon: '\u{1F335}', // cactus
     description: 'Armor covered in toxic thorns. Reflect damage and poison attackers.',
     tags: ['Poison', 'Physical', 'OnDamageTaken', 'DOT'] as const,
     triggerSentence: 'When hit, deal 8 physical + apply 3 poison stacks to attacker (1s cooldown).',

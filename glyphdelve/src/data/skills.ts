@@ -4,6 +4,7 @@ export const druidSkills: SkillDef[] = [
   {
     id: 'summon_briar_wolf',
     name: 'Summon Briar Wolf',
+    icon: '\u{1F43A}', // wolf
     description: 'Call a thorned wolf that chases nearby enemies and attacks with melee strikes.',
     tags: ['Summon', 'Nature', 'Physical', 'Melee'],
     triggerSentence: 'When cast, summon a Briar Wolf ally that pursues and attacks the nearest enemy.',
@@ -20,6 +21,7 @@ export const druidSkills: SkillDef[] = [
       {
         id: 'summon_briar_wolf_alpha',
         name: 'Alpha Briar Wolf',
+        icon: '\u{1F43A}', // wolf
         description: 'Wolf is larger, deals more damage, and grants nearby summons bonus attack speed.',
         tags: ['Summon', 'Nature', 'Physical', 'Melee', 'Aura'],
         triggerSentence: 'When cast, summon an Alpha Briar Wolf with +50% damage and a speed aura for allies.',
@@ -34,6 +36,7 @@ export const druidSkills: SkillDef[] = [
   {
     id: 'entangling_vines',
     name: 'Entangling Vines',
+    icon: '\u{1FAB4}', // potted plant
     description: 'Throw a vine patch at target location that roots and damages enemies over time.',
     tags: ['Nature', 'AOE', 'DOT', 'Ranged', 'Debuff'],
     triggerSentence: 'When cast, create a vine zone at target area dealing damage and slowing enemies.',
@@ -49,6 +52,7 @@ export const druidSkills: SkillDef[] = [
   {
     id: 'spore_bolt',
     name: 'Spore Bolt',
+    icon: '\u{1F7E2}', // green circle
     description: 'Fire a poison spore projectile that explodes on impact, leaving a toxic cloud.',
     tags: ['Poison', 'Ranged', 'Projectile', 'AOE'],
     triggerSentence: 'When cast, fire a projectile that deals poison damage and creates a toxic zone on hit.',
@@ -64,6 +68,7 @@ export const druidSkills: SkillDef[] = [
   {
     id: 'spirit_swarm',
     name: 'Spirit Swarm',
+    icon: '\u{1FAB7}', // beetle (insect)
     description: 'Release a wave of spirit insects that orbit you, damaging enemies that come close.',
     tags: ['Spirit', 'AOE', 'Summon', 'DOT'],
     triggerSentence: 'When cast, summon orbiting spirit insects that deal periodic damage to nearby enemies.',
@@ -79,6 +84,7 @@ export const druidSkills: SkillDef[] = [
   {
     id: 'thornburst',
     name: 'Thornburst',
+    icon: '\u{1F4A5}', // explosion
     description: 'Erupt thorns in a circle around you, dealing physical damage and pushing enemies back.',
     tags: ['Nature', 'Physical', 'AOE', 'Melee'],
     triggerSentence: 'When cast, deal burst physical damage in a ring around the player and knock enemies back.',
@@ -93,6 +99,7 @@ export const druidSkills: SkillDef[] = [
   {
     id: 'totemic_ward',
     name: 'Totemic Ward',
+    icon: '\u{1F5FF}', // moyai (totem)
     description: 'Place a totem that creates a healing aura for allies and weakens nearby enemies.',
     tags: ['Totem', 'Heal', 'Aura', 'Nature'],
     triggerSentence: 'When cast, place a stationary totem that heals allies and debuffs enemies in range.',
@@ -108,6 +115,7 @@ export const druidSkills: SkillDef[] = [
   {
     id: 'fungal_link',
     name: 'Fungal Link',
+    icon: '\u{1F344}', // mushroom
     description: 'Connect to your summons via mycelial thread. Damage dealt by summons heals you.',
     tags: ['Nature', 'Summon', 'Heal', 'Channel'],
     triggerSentence: 'When cast, link to summons for 6s; 15% of summon damage dealt heals you.',
@@ -122,6 +130,7 @@ export const druidSkills: SkillDef[] = [
   {
     id: 'wild_charge',
     name: 'Wild Charge',
+    icon: '\u{26A1}', // lightning bolt
     description: 'Dash forward in beast form, damaging enemies in your path.',
     tags: ['Physical', 'Melee', 'Transform'],
     triggerSentence: 'When cast, dash forward dealing damage to all enemies in path.',

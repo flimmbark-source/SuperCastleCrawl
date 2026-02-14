@@ -50,7 +50,7 @@ const BuildTab: React.FC<{ player: PlayerEntity; state: RunState; onUseInventory
       <h4 style={styles.sectionTitle}>Skills ({player.skills.length}/{player.maxSkillSlots})</h4>
       {player.skills.map(s => (
         <div key={s.def.id} style={styles.buildItem} title={`${s.def.description}\n${s.def.triggerSentence}`}>
-          <span style={styles.buildItemName}>{s.def.name}</span>
+          <span style={styles.buildItemName}><span style={styles.buildItemIcon}>{s.def.icon}</span> {s.def.name}</span>
           <span style={styles.buildItemTags}>{s.def.tags.slice(0, 2).join(', ')}</span>
         </div>
       ))}
@@ -59,7 +59,7 @@ const BuildTab: React.FC<{ player: PlayerEntity; state: RunState; onUseInventory
       <h4 style={styles.sectionTitle}>Passives ({player.passives.length})</h4>
       {player.passives.map(p => (
         <div key={p.def.id} style={styles.buildItem} title={`${p.def.description}\n${p.def.triggerSentence}`}>
-          <span style={styles.buildItemName}>{p.def.name}</span>
+          <span style={styles.buildItemName}><span style={styles.buildItemIcon}>{p.def.icon}</span> {p.def.name}</span>
           <span style={styles.buildItemTags}>{p.def.tags.slice(0, 2).join(', ')}</span>
         </div>
       ))}
@@ -69,7 +69,7 @@ const BuildTab: React.FC<{ player: PlayerEntity; state: RunState; onUseInventory
       {player.items.map(i => (
         <div key={i.def.id} style={styles.itemCard} title={buildEquippedItemTooltip(i)}>
           <div style={styles.buildItem}>
-            <span style={styles.buildItemName}>{i.def.name}</span>
+            <span style={styles.buildItemName}><span style={styles.buildItemIcon}>{i.def.icon}</span> {i.def.name}</span>
             <span style={styles.buildItemRarity}>[{i.def.rarity}]</span>
           </div>
           <div style={styles.itemDescription}>{buildItemEffectSummary(i)}</div>
@@ -187,6 +187,7 @@ const styles: Record<string, React.CSSProperties> = {
   buildSection: {},
   sectionTitle: { fontSize: 10, color: '#81d4fa', fontFamily: 'monospace', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: 1 },
   buildItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0', gap: 8 },
+  buildItemIcon: { fontSize: 12 },
   buildItemName: { fontSize: 10, color: '#ccc', fontFamily: 'monospace' },
   buildItemTags: { fontSize: 8, color: '#666', fontFamily: 'monospace' },
   buildItemRarity: { fontSize: 8, color: '#888', fontFamily: 'monospace' },

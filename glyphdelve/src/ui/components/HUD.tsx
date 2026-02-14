@@ -78,6 +78,7 @@ const SkillSlot: React.FC<{ skill: ActiveSkill; index: number }> = ({ skill, ind
     title={`${skill.def.name}\n${skill.def.description}\nTags: ${skill.def.tags.join(', ')}`}
     >
       <div style={styles.skillKey}>{index + 1}</div>
+      <div style={styles.skillIcon}>{skill.def.icon}</div>
       <div style={styles.skillName}>{skill.def.name.split(' ').map(w => w[0]).join('')}</div>
       {onCooldown && (
         <div style={{
@@ -189,10 +190,13 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#888',
     fontFamily: 'monospace',
   },
+  skillIcon: {
+    fontSize: 18,
+    lineHeight: 1,
+  },
   skillName: {
-    fontSize: 11,
-    color: '#e0e0e0',
-    fontWeight: 'bold',
+    fontSize: 8,
+    color: '#aaa',
     fontFamily: 'monospace',
   },
   cooldownOverlay: {

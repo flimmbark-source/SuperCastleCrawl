@@ -18,6 +18,7 @@ export type SynergyRating = 'High' | 'Med' | 'Low';
 export interface SkillDef {
   id: string;
   name: string;
+  icon: string;
   description: string;
   tags: Tag[];
   triggerSentence: string;
@@ -40,6 +41,7 @@ export interface SkillDef {
 export interface SkillUpgrade {
   id: string;
   name: string;
+  icon: string;
   description: string;
   tags: Tag[];
   triggerSentence: string;
@@ -53,6 +55,7 @@ export interface SkillUpgrade {
 export interface PassiveDef {
   id: string;
   name: string;
+  icon: string;
   description: string;
   tags: Tag[];
   triggerSentence: string;
@@ -82,6 +85,7 @@ export interface TriggerDef {
 export interface ItemDef {
   id: string;
   name: string;
+  icon: string;
   description: string;
   tags: Tag[];
   triggerSentence: string;
@@ -104,6 +108,7 @@ export interface ItemEffect {
 export interface ModifierDef {
   id: string;
   name: string;
+  icon: string;
   description: string;
   tags: Tag[];
   triggerSentence: string;
@@ -365,6 +370,7 @@ export interface LevelUpOffer {
   id: string;
   type: 'skill' | 'passive' | 'skill_upgrade';
   name: string;
+  icon: string;
   tags: Tag[];
   description: string;
   triggerSentence: string;

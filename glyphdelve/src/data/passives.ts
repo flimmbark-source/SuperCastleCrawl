@@ -4,6 +4,7 @@ export const druidPassives: PassiveDef[] = [
   {
     id: 'pack_tactics',
     name: 'Pack Tactics',
+    icon: '\u{1F43E}', // paw prints
     description: 'Your summons deal more damage when multiple summons are active.',
     tags: ['Summon', 'Physical'],
     triggerSentence: 'When you have 2+ summons active, all summons deal +20% damage.',
@@ -15,6 +16,7 @@ export const druidPassives: PassiveDef[] = [
   {
     id: 'alpha_bond',
     name: 'Alpha Bond',
+    icon: '\u{1F517}', // link
     description: 'If you have exactly 1 summon, it gains massive stat bonuses.',
     tags: ['Summon', 'Buff'],
     triggerSentence: 'When exactly 1 summon is active, it gains +60% damage, +40% HP, and +25% speed.',
@@ -26,6 +28,7 @@ export const druidPassives: PassiveDef[] = [
   {
     id: 'spore_mantle',
     name: 'Spore Mantle',
+    icon: '\u{1F32B}\u{FE0F}', // fog
     description: 'Taking damage releases a small poison cloud at your location.',
     tags: ['Poison', 'OnDamageTaken', 'AOE'],
     triggerSentence: 'When you take damage, emit a poison cloud (2s cooldown) dealing DOT in a small area.',
@@ -37,6 +40,7 @@ export const druidPassives: PassiveDef[] = [
   {
     id: 'elder_bond',
     name: 'Elder Bond',
+    icon: '\u{1F333}', // deciduous tree
     description: 'Your summons gain a portion of your armor and resistances.',
     tags: ['Summon', 'Shield', 'Nature'],
     triggerSentence: 'Summons inherit 40% of your armor and resistance values.',
@@ -48,6 +52,7 @@ export const druidPassives: PassiveDef[] = [
   {
     id: 'natures_fury',
     name: "Nature's Fury",
+    icon: '\u{1F342}', // fallen leaf
     description: 'Nature-tagged skills deal increased damage.',
     tags: ['Nature', 'Buff'],
     triggerSentence: 'All skills with the Nature tag deal +15% damage.',
@@ -59,6 +64,7 @@ export const druidPassives: PassiveDef[] = [
   {
     id: 'toxic_proliferation',
     name: 'Toxic Proliferation',
+    icon: '\u{2620}\u{FE0F}', // skull and crossbones
     description: 'When an enemy dies with poison stacks, spread stacks to nearby enemies.',
     tags: ['Poison', 'OnKill', 'AOE'],
     triggerSentence: 'When a poisoned enemy dies, spread 50% of its stacks to enemies within range.',
@@ -70,6 +76,7 @@ export const druidPassives: PassiveDef[] = [
   {
     id: 'symbiotic_growth',
     name: 'Symbiotic Growth',
+    icon: '\u{1F33F}', // herb
     description: 'Each active summon increases your max HP by a flat amount.',
     tags: ['Summon', 'Heal', 'Nature'],
     triggerSentence: 'Each active summon grants you +8 max HP.',
@@ -81,6 +88,7 @@ export const druidPassives: PassiveDef[] = [
   {
     id: 'thorned_hide',
     name: 'Thorned Hide',
+    icon: '\u{1F335}', // cactus
     description: 'Reflect a portion of melee damage taken back to attackers.',
     tags: ['Physical', 'OnDamageTaken', 'Nature'],
     triggerSentence: 'When hit by melee attacks, reflect 25% of damage taken back to the attacker.',
@@ -92,6 +100,7 @@ export const druidPassives: PassiveDef[] = [
   {
     id: 'primal_instinct',
     name: 'Primal Instinct',
+    icon: '\u{1F405}', // tiger
     description: 'After using a Transform skill, gain bonus movement and attack speed briefly.',
     tags: ['Transform', 'Buff', 'Physical'],
     triggerSentence: 'After casting a Transform skill, gain +30% move speed and +20% attack speed for 4s.',
@@ -103,6 +112,7 @@ export const druidPassives: PassiveDef[] = [
   {
     id: 'verdant_pulse',
     name: 'Verdant Pulse',
+    icon: '\u{1F49A}', // green heart
     description: 'Every 10 seconds, heal yourself and all summons for a small amount.',
     tags: ['Nature', 'Heal', 'Summon', 'Aura'],
     triggerSentence: 'Every 10s, heal player and all summons for 5 HP.',
@@ -114,6 +124,7 @@ export const druidPassives: PassiveDef[] = [
   {
     id: 'death_blossom',
     name: 'Death Blossom',
+    icon: '\u{1F940}', // wilted flower
     description: 'When one of your summons dies, it explodes dealing AOE nature damage.',
     tags: ['Summon', 'OnDeath', 'AOE', 'Nature'],
     triggerSentence: 'When a summon dies, it explodes dealing 15 nature damage in a small area.',
@@ -125,6 +136,7 @@ export const druidPassives: PassiveDef[] = [
   {
     id: 'root_network',
     name: 'Root Network',
+    icon: '\u{1FAB5}', // wood
     description: 'Totems and summons share a healing link, redistributing damage evenly.',
     tags: ['Totem', 'Summon', 'Heal', 'Nature'],
     triggerSentence: 'When a summon or totem takes damage, 20% is distributed to other summons.',
@@ -136,6 +148,7 @@ export const druidPassives: PassiveDef[] = [
   {
     id: 'feral_momentum',
     name: 'Feral Momentum',
+    icon: '\u{1F525}', // fire
     description: 'Each enemy killed within 5 seconds increases your damage temporarily.',
     tags: ['OnKill', 'Buff', 'Physical'],
     triggerSentence: 'On kill, gain +8% damage for 5s. Stacks up to 5 times.',
@@ -147,6 +160,7 @@ export const druidPassives: PassiveDef[] = [
   {
     id: 'mycorrhizal_bond',
     name: 'Mycorrhizal Bond',
+    icon: '\u{1F344}', // mushroom
     description: 'When you cast a Summon skill, your next non-Summon skill has reduced cooldown.',
     tags: ['Summon', 'Cooldown', 'Nature'],
     triggerSentence: 'After casting a Summon skill, your next non-Summon skill cooldown is reduced by 30%.',

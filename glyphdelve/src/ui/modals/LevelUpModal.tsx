@@ -56,7 +56,10 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, expanded, onToggleExpand, 
       <div style={{ ...styles.typeBadge, backgroundColor: typeColor }}>{typeLabel}</div>
       <div style={{ ...styles.rarityBadge, color: rarityColor }}>{offer.rarity}</div>
 
-      <h3 style={styles.cardTitle}>{offer.name}</h3>
+      <div style={styles.cardTitleRow}>
+        <span style={styles.cardIcon}>{offer.icon}</span>
+        <h3 style={styles.cardTitle}>{offer.name}</h3>
+      </div>
 
       {/* Information hierarchy: 1. Plain effect, 2. Tags, 3. Trigger, 4. Numbers, 5. Synergy */}
       <p style={styles.cardDesc}>{offer.description}</p>
@@ -164,6 +167,16 @@ const styles: Record<string, React.CSSProperties> = {
     right: 10,
     fontSize: 9,
     fontFamily: 'monospace',
+  },
+  cardTitleRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+  },
+  cardIcon: {
+    fontSize: 22,
+    lineHeight: 1,
+    flexShrink: 0,
   },
   cardTitle: {
     color: '#e0e0e0',

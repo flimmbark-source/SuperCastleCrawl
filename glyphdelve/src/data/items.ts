@@ -4,6 +4,7 @@ export const druidItems: ItemDef[] = [
   {
     id: 'totem_bark_ring',
     name: 'Totem Bark Ring',
+    icon: '\u{1F48D}', // ring
     description: 'A ring carved from ancient totem wood. Totem skills gain extended duration.',
     tags: ['Totem', 'Nature', 'Buff'],
     triggerSentence: 'When equipped, all Totem skills gain +40% duration.',
@@ -16,6 +17,7 @@ export const druidItems: ItemDef[] = [
   {
     id: 'moonbone_charm',
     name: 'Moonbone Charm',
+    icon: '\u{1F319}', // crescent moon
     description: 'A lunar-infused bone charm. Summons gain bonus damage at night phases.',
     tags: ['Summon', 'Spirit', 'Buff'],
     triggerSentence: 'When equipped, summons deal +12% damage. On elite kills, briefly double this bonus.',
@@ -31,6 +33,7 @@ export const druidItems: ItemDef[] = [
   {
     id: 'venomweave_cloak',
     name: 'Venomweave Cloak',
+    icon: '\u{1F9E5}', // coat
     description: 'A cloak dripping with natural toxins. Adds poison to all your attacks.',
     tags: ['Poison', 'DOT', 'Nature'],
     triggerSentence: 'When equipped, all your damaging skills apply 1 poison stack on hit.',
@@ -43,6 +46,7 @@ export const druidItems: ItemDef[] = [
   {
     id: 'rootgrip_staff',
     name: 'Rootgrip Staff',
+    icon: '\u{1FA84}', // wand
     description: 'Gnarled staff pulsing with earth energy. AOE skills have larger radius.',
     tags: ['Nature', 'AOE', 'Ranged'],
     triggerSentence: 'When equipped, all AOE skills gain +25% area radius.',
@@ -55,6 +59,7 @@ export const druidItems: ItemDef[] = [
   {
     id: 'bramble_heart',
     name: 'Bramble Heart',
+    icon: '\u{1F49A}', // green heart
     description: 'A thorn-covered organ that pulses with life. Gain thorns damage when hit.',
     tags: ['Physical', 'OnDamageTaken', 'Nature'],
     triggerSentence: 'When hit, deal 6 physical damage to the attacker. 0.5s internal cooldown.',
@@ -67,6 +72,7 @@ export const druidItems: ItemDef[] = [
   {
     id: 'spore_sac',
     name: 'Spore Sac',
+    icon: '\u{1F4A3}', // bomb
     description: 'Bulbous fungal growth. Poison damage ticks deal bonus burst at max stacks.',
     tags: ['Poison', 'DOT', 'OnHit'],
     triggerSentence: 'When a target reaches max poison stacks (12), detonate for 30 burst damage.',
@@ -79,6 +85,7 @@ export const druidItems: ItemDef[] = [
   {
     id: 'packleader_fang',
     name: "Packleader's Fang",
+    icon: '\u{1F9B7}', // tooth
     description: 'Ancient alpha fang. Your first summon each combat gains permanent damage stacks.',
     tags: ['Summon', 'Physical', 'OnSummon'],
     triggerSentence: 'First summon per room gains +5 damage per subsequent summon cast.',
@@ -91,6 +98,7 @@ export const druidItems: ItemDef[] = [
   {
     id: 'living_moss_shield',
     name: 'Living Moss Shield',
+    icon: '\u{1F6E1}\u{FE0F}', // shield
     description: 'A shield of compacted moss that regenerates over time.',
     tags: ['Nature', 'Shield', 'Heal'],
     triggerSentence: 'When equipped, regenerate 2 HP every 3 seconds. After not taking damage for 5s, double regen rate.',
@@ -103,6 +111,7 @@ export const druidItems: ItemDef[] = [
   {
     id: 'echo_seed',
     name: 'Echo Seed',
+    icon: '\u{1F331}', // seedling
     description: 'Crystallized nature memory. Skills occasionally cast a weakened echo.',
     tags: ['Nature', 'Cooldown', 'Ranged'],
     triggerSentence: 'When you cast a skill, 15% chance to echo it at 40% effectiveness.',
@@ -115,6 +124,7 @@ export const druidItems: ItemDef[] = [
   {
     id: 'wild_stride_boots',
     name: 'Wild Stride Boots',
+    icon: '\u{1F462}', // boot
     description: 'Boots woven from living vines. Move faster and leave damaging trail.',
     tags: ['Nature', 'Physical', 'DOT'],
     triggerSentence: 'When equipped, gain +15% move speed. Moving leaves a brief thorn trail.',
@@ -130,6 +140,7 @@ export const druidItems: ItemDef[] = [
   {
     id: 'guardian_bark_amulet',
     name: 'Guardian Bark Amulet',
+    icon: '\u{1F3C5}', // medal
     description: 'Thick bark shield activates when health drops low.',
     tags: ['Nature', 'Shield', 'OnDamageTaken'],
     triggerSentence: 'When HP drops below 30%, gain a bark shield absorbing 25 damage (60s cooldown).',
@@ -142,6 +153,7 @@ export const druidItems: ItemDef[] = [
   {
     id: 'hive_mind_crown',
     name: 'Hive Mind Crown',
+    icon: '\u{1F451}', // crown
     description: 'Crown of fossilized insect amber. Summons coordinate their attacks.',
     tags: ['Summon', 'Spirit', 'Aura'],
     triggerSentence: 'When equipped, all summons focus the same target. Focused target takes +10% damage from summons.',
