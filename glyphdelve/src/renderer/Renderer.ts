@@ -11,10 +11,10 @@ export interface RenderConfig {
 
 const TILE_SIZE = 32;
 const COLORS = {
-  bg: '#1a1a2e',
-  floor: '#2a2a3e',
-  floorAlt: '#252538',
-  wall: '#3a3a4e',
+  bg: '#161623',
+  floor: '#303448',
+  floorAlt: '#2b3042',
+  wall: '#434a60',
   player: '#4fc3f7',
   playerOutline: '#0288d1',
   enemy: '#ef5350',
@@ -140,6 +140,11 @@ export class Renderer {
     const endX = startX + Math.ceil(this.width / TILE_SIZE) + 2;
     const endY = startY + Math.ceil(this.height / TILE_SIZE) + 2;
 
+    // Ambient base so the arena is always visible behind entities
+    const pad = TILE_SIZE * 2;
+    ctx.fillStyle = COLORS.bg;
+    ctx.fillRect((startX - 1) * TILE_SIZE - pad, (startY - 1) * TILE_SIZE - pad, (endX - startX + 3) * TILE_SIZE + pad * 2, (endY - startY + 3) * TILE_SIZE + pad * 2);
+
     // Arena bounds
     const arenaSize = 14;
 
@@ -153,6 +158,19 @@ export class Renderer {
           ctx.fillStyle = COLORS.wall;
         }
         ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+
+        // Tile seam + light noise for readability of movement space
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x * TILE_SIZE + 0.5, y * TILE_SIZE + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+
+        if (inArena && (x + y) % 5 === 0) {
+          ctx.strokeStyle = 'rgba(153, 171, 208, 0.12)';
+          ctx.beginPath();
+          ctx.moveTo(x * TILE_SIZE + 8, y * TILE_SIZE + TILE_SIZE - 8);
+          ctx.lineTo(x * TILE_SIZE + TILE_SIZE - 8, y * TILE_SIZE + 8);
+          ctx.stroke();
+        }
 
         // Arena border
         if (inArena) {

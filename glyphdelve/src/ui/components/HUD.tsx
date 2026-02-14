@@ -12,6 +12,7 @@ export const HUD: React.FC<HUDProps> = ({ player, state, floor, nodeIndex }) => 
   const hpPercent = (player.hp / player.maxHp) * 100;
   const xpPercent = (player.xp / player.xpToNext) * 100;
   const resourcePercent = (player.resource / player.maxResource) * 100;
+  const latestTurnEntry = [...state.combatLog].reverse().find(entry => entry.source === 'system' && entry.details.includes('turn'));
 
   return (
     <>
@@ -43,6 +44,9 @@ export const HUD: React.FC<HUDProps> = ({ player, state, floor, nodeIndex }) => 
         </div>
         <div style={styles.timeLabel}>
           {formatTime(state.runTime)} · Kills: {state.killCount}
+        </div>
+        <div style={styles.turnLabel}>
+          {latestTurnEntry?.details ?? 'Player turn'}
         </div>
       </div>
 
@@ -147,6 +151,11 @@ const styles: Record<string, React.CSSProperties> = {
   timeLabel: {
     fontSize: 11,
     color: '#666',
+    fontFamily: 'monospace',
+  },
+  turnLabel: {
+    fontSize: 11,
+    color: '#fff59d',
     fontFamily: 'monospace',
   },
   hotbar: {

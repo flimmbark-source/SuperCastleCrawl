@@ -18,6 +18,7 @@ initializeRegistry();
 const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
+  const canvasAttachedRef = useRef(false);
 
   const [settings, setSettings] = useState<AccessibilitySettings>(loadSettings());
   const [phase, setPhase] = useState<GamePhase>('menu');
@@ -46,6 +47,13 @@ const App: React.FC = () => {
 
   useEffect(() => { applyFontScale(settings.fontScale); }, [settings.fontScale]);
 
+  useEffect(() => {
+    if (phase === 'menu') return;
+    if (!gameRef.current || !canvasRef.current || canvasAttachedRef.current) return;
+    gameRef.current.attachCanvas(canvasRef.current);
+    canvasAttachedRef.current = true;
+  }, [phase]);
+
   const startNewRun = useCallback((runSeed?: number) => {
     const useSeed = runSeed ?? Date.now();
     setSeed(useSeed);
@@ -60,7 +68,11 @@ const App: React.FC = () => {
     }, settings);
 
     gameRef.current = game;
-    if (canvasRef.current) game.attachCanvas(canvasRef.current);
+    canvasAttachedRef.current = false;
+    if (canvasRef.current) {
+      game.attachCanvas(canvasRef.current);
+      canvasAttachedRef.current = true;
+    }
     game.start();
     setState(game.state);
   }, [settings]);

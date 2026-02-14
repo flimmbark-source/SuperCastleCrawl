@@ -61,6 +61,10 @@ export class Game {
   // Skill auto-attack
   private autoAttackTimer = 0;
   private autoAttackCooldown = 0.6;
+  private turnPhase: 'player' | 'enemy' = 'player';
+  private enemyTurnTimer = 0;
+  private readonly enemyTurnDuration = 0.35;
+  private readonly playerStepDistance = 32;
 
   constructor(seed: number, callbacks: GameCallbacks, settings: AccessibilitySettings) {
     this.rng = new SeededRNG(seed);
@@ -161,6 +165,8 @@ export class Game {
 
   private startCombat(type: 'combat' | 'elite' | 'boss') {
     this.state.combatActive = true;
+    this.turnPhase = 'player';
+    this.enemyTurnTimer = 0;
     this.state.player.pos = { x: 0, y: 100 };
     this.state.player.vel = { x: 0, y: 0 };
 
@@ -291,29 +297,6 @@ export class Game {
       return;
     }
 
-    // --- Player movement ---
-    let dx = 0, dy = 0;
-    if (this.input.isActionDown('moveUp')) dy -= 1;
-    if (this.input.isActionDown('moveDown')) dy += 1;
-    if (this.input.isActionDown('moveLeft')) dx -= 1;
-    if (this.input.isActionDown('moveRight')) dx += 1;
-
-    if (dx !== 0 || dy !== 0) {
-      const len = Math.sqrt(dx * dx + dy * dy);
-      dx /= len; dy /= len;
-      player.pos.x += dx * player.speed * dt;
-      player.pos.y += dy * player.speed * dt;
-      player.animState = 'move';
-      player.rotation = Math.atan2(dy, dx);
-    } else {
-      player.animState = 'idle';
-    }
-
-    // Clamp player to arena
-    player.pos.x = Math.max(-ARENA_SIZE, Math.min(ARENA_SIZE, player.pos.x));
-    player.pos.y = Math.max(-ARENA_SIZE, Math.min(ARENA_SIZE, player.pos.y));
-
-    // --- Player aim (toward mouse) ---
     if (this.canvas) {
       const mousePos = this.input.getMousePos();
       const worldX = mousePos.x + (this.state.player.pos.x - this.canvas.width / 2);
@@ -321,22 +304,91 @@ export class Game {
       player.rotation = Math.atan2(worldY - player.pos.y, worldX - player.pos.x);
     }
 
-    // --- Skill usage ---
+    if (this.turnPhase === 'player') {
+      player.animState = 'idle';
+      if (this.tryPlayerTurnAction()) {
+        this.processKills();
+        this.checkRoomClear();
+      }
+      return;
+    }
+
+    // Enemy turn: enemies/summons/projectiles all resolve a short action window.
+    this.enemyTurnTimer -= dt;
+    updateEnemyAI(this.state, dt);
+    updateSummons(this.state, dt);
+    updateProjectiles(this.state, dt);
+    updateHazards(this.state, dt);
+    processPoison(this.state, dt);
+    processRegen(this.state, dt);
+    updateTimers(this.state, dt);
+
+    this.processKills();
+    this.checkRoomClear();
+    cleanupEntities(this.state);
+    this.updatePeriodicEffects(dt);
+
+    if (this.enemyTurnTimer <= 0) {
+      this.turnPhase = 'player';
+      this.autoAttackTimer = Math.max(0, this.autoAttackTimer - this.enemyTurnDuration);
+      addCombatLog(this.state, {
+        type: 'trigger',
+        source: 'system',
+        details: 'Player turn',
+      });
+    }
+  }
+
+  private tryPlayerTurnAction(): boolean {
+    const player = this.state.player;
+
     for (let i = 0; i < player.skills.length; i++) {
       const skill = player.skills[i];
-      skill.cooldownRemaining = Math.max(0, skill.cooldownRemaining - dt);
-
+      skill.cooldownRemaining = Math.max(0, skill.cooldownRemaining - this.enemyTurnDuration);
       const actionKey = `skill${i + 1}`;
       if (this.input.isActionJustPressed(actionKey) && skill.cooldownRemaining <= 0) {
         this.useSkill(skill, i);
+        this.beginEnemyTurn();
+        return true;
       }
     }
 
-    // --- Auto attack on mouse click ---
-    this.autoAttackTimer = Math.max(0, this.autoAttackTimer - dt);
-    if (this.input.isMouseDown() && this.autoAttackTimer <= 0) {
+    const step = this.playerStepDistance;
+    if (this.input.isActionJustPressed('moveUp')) {
+      player.pos.y -= step;
+      player.rotation = -Math.PI / 2;
+      player.animState = 'move';
+      this.beginEnemyTurn();
+      return true;
+    }
+    if (this.input.isActionJustPressed('moveDown')) {
+      player.pos.y += step;
+      player.rotation = Math.PI / 2;
+      player.animState = 'move';
+      this.beginEnemyTurn();
+      return true;
+    }
+    if (this.input.isActionJustPressed('moveLeft')) {
+      player.pos.x -= step;
+      player.rotation = Math.PI;
+      player.animState = 'move';
+      this.beginEnemyTurn();
+      return true;
+    }
+    if (this.input.isActionJustPressed('moveRight')) {
+      player.pos.x += step;
+      player.rotation = 0;
+      player.animState = 'move';
+      this.beginEnemyTurn();
+      return true;
+    }
+
+    player.pos.x = Math.max(-ARENA_SIZE, Math.min(ARENA_SIZE, player.pos.x));
+    player.pos.y = Math.max(-ARENA_SIZE, Math.min(ARENA_SIZE, player.pos.y));
+
+    this.autoAttackTimer = Math.max(0, this.autoAttackTimer - this.enemyTurnDuration);
+    if (this.input.isMouseJustClicked() && this.autoAttackTimer <= 0) {
       this.autoAttackTimer = this.autoAttackCooldown / player.attackSpeed;
-      // Basic attack projectile
       const dir = { x: Math.cos(player.rotation), y: Math.sin(player.rotation) };
       const proj: ProjectileEntity = {
         id: `proj_${Date.now()}_${Math.random()}`,
@@ -361,44 +413,45 @@ export class Game {
       };
       this.state.entities.push(proj);
       player.animState = 'attack';
+      this.beginEnemyTurn();
+      return true;
     }
 
-    // --- Systems ---
-    updateEnemyAI(this.state, dt);
-    updateSummons(this.state, dt);
-    updateProjectiles(this.state, dt);
-    updateHazards(this.state, dt);
-    processPoison(this.state, dt);
-    processRegen(this.state, dt);
-    updateTimers(this.state, dt);
+    return false;
+  }
 
-    // --- Check kills and award XP ---
-    this.processKills();
+  private beginEnemyTurn() {
+    const player = this.state.player;
+    player.pos.x = Math.max(-ARENA_SIZE, Math.min(ARENA_SIZE, player.pos.x));
+    player.pos.y = Math.max(-ARENA_SIZE, Math.min(ARENA_SIZE, player.pos.y));
+    this.turnPhase = 'enemy';
+    this.enemyTurnTimer = this.enemyTurnDuration;
+    addCombatLog(this.state, {
+      type: 'trigger',
+      source: 'system',
+      details: 'Enemy turn',
+    });
+  }
 
-    // --- Check room clear ---
+  private checkRoomClear() {
     const livingEnemies = this.state.entities.filter(
       e => e.type === 'enemy' && e.alive
     );
+
     if (livingEnemies.length === 0 && !this.roomClearAwarded && this.state.combatActive) {
       this.roomClearAwarded = true;
       this.state.combatActive = false;
       const lvl = awardXP(this.state, XP_REWARDS.roomClear);
       if (lvl) this.pendingLevelUps++;
 
-      // Short delay then complete
       setTimeout(() => {
         if (this.pendingLevelUps > 0) {
           this.showLevelUp();
         } else {
           this.completeNode();
         }
-      }, 800);
+      }, 400);
     }
-
-    cleanupEntities(this.state);
-
-    // Periodic timers (verdant pulse, etc.)
-    this.updatePeriodicEffects(dt);
   }
 
   private processKills() {
