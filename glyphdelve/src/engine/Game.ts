@@ -16,9 +16,9 @@ import {
   dist, dirTo, findNearestEnemy
 } from '../systems/CombatSystem';
 import { awardXP, XP_REWARDS, generateLevelUpOffers, applyLevelUpChoice } from '../systems/LevelSystem';
-import { rollDrops, applyDrops, checkPityDrop } from '../systems/DropSystem';
+import { rollDrops, applyDrops, checkPityDrop, createGuaranteedEncounterDrop } from '../systems/DropSystem';
 import { updateEnemyAI, spawnEnemiesForNode } from '../systems/EnemyAI';
-import type { LevelUpOffer } from '../types';
+import type { LevelUpOffer, EncounterLootEntry } from '../types';
 import type { AccessibilitySettings } from '../types';
 
 export type GamePhase =
@@ -29,6 +29,7 @@ export type GamePhase =
   | 'shrine'
   | 'recovery'
   | 'event'
+  | 'loot'
   | 'victory'
   | 'defeat'
   | 'build_summary';
@@ -54,6 +55,8 @@ export class Game {
   private canvas: HTMLCanvasElement | null = null;
   private pendingLevelUps = 0;
   private roomClearAwarded = false;
+  private encounterHadItemDrop = false;
+  private currentEncounterType: 'normal' | 'elite' | 'boss' = 'normal';
   private onboardingStep = 0;
   private periodicTimers: Map<string, number> = new Map();
   private settings: AccessibilitySettings;
@@ -168,6 +171,9 @@ export class Game {
     this.turnPhase = 'player';
     this.enemyTurnTimer = 0;
     this.state.player.pos = { x: 0, y: 100 };
+    this.state.encounterLoot = [];
+    this.encounterHadItemDrop = false;
+    this.currentEncounterType = type === 'combat' ? 'normal' : type;
     this.state.player.vel = { x: 0, y: 0 };
     (this.state.player as any)._packleaderStacks = 0;
     (this.state.player as any)._firstSummonId = '';
@@ -266,6 +272,14 @@ export class Game {
   // --- Show build summary ---
   showBuildSummary() {
     this.setPhase('build_summary');
+  }
+
+  confirmEncounterLoot() {
+    if (this.pendingLevelUps > 0) {
+      this.showLevelUp();
+    } else {
+      this.completeNode();
+    }
   }
 
   useInventoryItem(itemId: string) {
@@ -517,6 +531,18 @@ export class Game {
       if (lvl) this.pendingLevelUps++;
 
       setTimeout(() => {
+        if (!this.encounterHadItemDrop) {
+          const guaranteed = createGuaranteedEncounterDrop(this.state, this.rng, this.currentEncounterType);
+          this.collectEncounterLoot(guaranteed.items);
+          applyDrops(this.state, guaranteed);
+          this.encounterHadItemDrop = true;
+        }
+
+        if (this.state.encounterLoot.length > 0) {
+          this.setPhase('loot');
+          return;
+        }
+
         if (this.pendingLevelUps > 0) {
           this.showLevelUp();
         } else {
@@ -552,6 +578,10 @@ export class Game {
 
       // Roll drops
       const drops = rollDrops(this.state, xpType, this.rng);
+      if (drops.items.length > 0) {
+        this.collectEncounterLoot(drops.items);
+        this.encounterHadItemDrop = true;
+      }
       applyDrops(this.state, drops);
 
       // Particles
@@ -847,6 +877,19 @@ export class Game {
     player.invulnMs = 200;
   }
 
+
+  private collectEncounterLoot(items: Array<{ id: string; name: string; rarity: any; description: string; triggerSentence: string }>) {
+    items.forEach(item => {
+      const entry: EncounterLootEntry = {
+        id: item.id,
+        name: item.name,
+        rarity: item.rarity,
+        description: item.description,
+        effectSummary: item.triggerSentence,
+      };
+      this.state.encounterLoot.push(entry);
+    });
+  }
 
   private hasItem(itemId: string): boolean {
     return this.state.player.items.some(i => i.def.id === itemId);

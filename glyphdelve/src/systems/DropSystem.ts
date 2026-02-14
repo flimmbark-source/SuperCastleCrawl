@@ -81,6 +81,20 @@ function pickItem(state: RunState, rng: SeededRNG, minRarity: string): ItemDef {
   return rng.weightedPick(allItems, weights);
 }
 
+
+export function createGuaranteedEncounterDrop(
+  state: RunState,
+  rng: SeededRNG,
+  enemyType: 'normal' | 'elite' | 'boss'
+): DropResult {
+  const rarityFloor = enemyType === 'boss' ? 'Rare' : enemyType === 'elite' ? 'Uncommon' : 'Common';
+  return {
+    items: [pickItem(state, rng, rarityFloor)],
+    essence: enemyType === 'boss' ? rng.nextInt(8, 14) : enemyType === 'elite' ? rng.nextInt(4, 8) : rng.nextInt(2, 5),
+    consumable: false,
+  };
+}
+
 export function applyDrops(state: RunState, drops: DropResult) {
   const player = state.player;
 

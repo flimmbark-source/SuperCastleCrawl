@@ -313,6 +313,14 @@ export interface FloorMap {
 }
 
 // --- Run State ---
+export interface EncounterLootEntry {
+  id: string;
+  name: string;
+  rarity: Rarity;
+  description: string;
+  effectSummary: string;
+}
+
 export interface RunState {
   seed: number;
   floor: number;
@@ -335,6 +343,7 @@ export interface RunState {
   triggerChainDepths: number[];
   meldHistory: MeldLogEntry[];
   deathCauseTaxonomy: Map<string, number>;
+  encounterLoot: EncounterLootEntry[];
 }
 
 export interface CombatLogEntry {
