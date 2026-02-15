@@ -29,7 +29,7 @@ const App: React.FC = () => {
   const [fps, setFps] = useState(60);
   const [debugToggles, setDebugToggles] = useState({ hitboxes: false, triggers: false, caps: true });
   const [seed, setSeed] = useState<number>(Date.now());
-  const [stateVersion, setStateVersion] = useState(0);
+  const [lootTooltip, setLootTooltip] = useState<{ item: RunState['encounterLoot'][number]; x: number; y: number } | null>(null);
 
   useEffect(() => {
     let frames = 0;
@@ -142,11 +142,11 @@ const App: React.FC = () => {
       )}
 
       {phase === 'levelup' && (
-        <LevelUpModal offers={levelUpOffers} onChoose={(id) => gameRef.current?.chooseLevelUp(id)} tooltipMode={settings.tooltipMode} />
+        <LevelUpModal offers={levelUpOffers} playerLevel={state?.player.level || 1} onChoose={(id) => gameRef.current?.chooseLevelUp(id)} tooltipMode={settings.tooltipMode} />
       )}
 
       {phase === 'shrine' && state && (
-        <ShrineModal state={state} onComplete={() => gameRef.current?.completeNode()} onStateChange={() => setStateVersion(v => v + 1)} />
+        <ShrineModal state={state} onComplete={() => gameRef.current?.completeNode()} onStateChange={() => setState({ ...state })} />
       )}
 
       {phase === 'recovery' && state && (
@@ -181,17 +181,44 @@ const App: React.FC = () => {
             <p style={gameStyles.eventDesc}>You found {state.encounterLoot.length} item{state.encounterLoot.length === 1 ? '' : 's'} this encounter.</p>
             <div style={{ maxHeight: 240, overflowY: 'auto', textAlign: 'left', margin: '12px 0', border: '1px solid #333', borderRadius: 6, padding: 10 }}>
               {state.encounterLoot.map((item, idx) => (
-                <div key={`${item.id}_${idx}`} style={{ marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                  <div style={{ color: '#ffd54f', fontFamily: 'monospace', fontSize: 12 }}>
-                    {item.name} [{item.rarity}]
+                <div
+                  key={`${item.id}_${idx}`}
+                  style={{ marginBottom: 6, padding: '4px 6px', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 4, cursor: 'default' }}
+                  onMouseEnter={(e) => setLootTooltip({ item, x: e.clientX, y: e.clientY })}
+                  onMouseMove={(e) => setLootTooltip({ item, x: e.clientX, y: e.clientY })}
+                  onMouseLeave={() => setLootTooltip(null)}
+                >
+                  <div style={{ color: '#ffd54f', fontFamily: 'monospace', fontSize: 11, display: 'flex', justifyContent: 'space-between' }}>
+                    <span>{item.name}</span>
+                    <span style={{ color: '#9aa6bf' }}>[{item.rarity}]</span>
                   </div>
-                  <div style={{ color: '#aab6d1', fontFamily: 'monospace', fontSize: 10 }}>{item.description}</div>
-                  <div style={{ color: '#90caf9', fontFamily: 'monospace', fontSize: 10 }}>{item.effectSummary}</div>
                 </div>
               ))}
             </div>
             <button style={gameStyles.eventBtn} onClick={() => gameRef.current?.confirmEncounterLoot()}>Continue Delve</button>
           </div>
+        </div>
+      )}
+
+
+      {lootTooltip && phase === 'loot' && (
+        <div
+          style={{
+            position: 'fixed',
+            left: lootTooltip.x + 10,
+            top: lootTooltip.y + 10,
+            maxWidth: 210,
+            backgroundColor: 'rgba(10, 14, 25, 0.95)',
+            border: '1px solid #38445f',
+            borderRadius: 6,
+            padding: '6px 7px',
+            zIndex: 140,
+            pointerEvents: 'none',
+            boxShadow: '0 3px 10px rgba(0,0,0,0.35)',
+          }}
+        >
+          <div style={{ color: '#d7e3ff', fontFamily: 'monospace', fontSize: 9, lineHeight: 1.25 }}>{lootTooltip.item.description}</div>
+          <div style={{ color: '#8bc8ff', fontFamily: 'monospace', fontSize: 9, lineHeight: 1.25, marginTop: 4 }}>{lootTooltip.item.effectSummary}</div>
         </div>
       )}
 

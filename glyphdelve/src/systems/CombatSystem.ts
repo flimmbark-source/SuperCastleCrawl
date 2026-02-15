@@ -88,6 +88,9 @@ export function processDamage(
 
   // 3. Mitigation (armor for physical)
   let mitigated = event.baseDamage;
+  if (attacker.type === 'enemy' && (attacker as any)._weakenedMs > 0) {
+    mitigated *= 0.8;
+  }
   if (event.damageType === 'physical' && 'armor' in target) {
     const armor = (target as any).armor || 0;
     const reduction = Math.min(armor * 0.5, mitigated * HARD_CAPS.maxDamageReduction);
@@ -253,6 +256,21 @@ function processOnHitTriggers(
   attacker: Entity, target: Entity, damage: number,
   state: RunState, ctx: TriggerContext
 ) {
+  if (attacker.type === 'summon' && attacker.faction === 'player' && damage > 0) {
+    const fungalLinkMs = (state.player as any)._fungalLinkMs || 0;
+    if (fungalLinkMs > 0) {
+      const heal = Math.max(1, Math.round(damage * 0.15));
+      state.player.hp = Math.min(state.player.maxHp, state.player.hp + heal);
+      addCombatLog(state, {
+        type: 'heal',
+        source: 'fungal_link',
+        target: 'player',
+        value: heal,
+        details: `Fungal Link healed ${heal} HP`,
+      });
+    }
+  }
+
   if (attacker.type === 'player') {
     const player = attacker as PlayerEntity;
     // Check for poison application items
@@ -411,6 +429,33 @@ export function updateProjectiles(state: RunState, dt: number) {
         }, state);
 
         if (!proj.piercing) {
+          if (proj.aoeOnImpact && proj.faction === 'player') {
+            const hazard: HazardEntity = {
+              id: `haz_${Date.now()}_${Math.random()}`,
+              type: 'hazard',
+              pos: { ...proj.pos },
+              vel: { x: 0, y: 0 },
+              hp: 1,
+              maxHp: 1,
+              radius: proj.aoeOnImpact,
+              speed: 0,
+              faction: proj.faction,
+              tags: ['Poison', 'DOT', 'AOE'],
+              alive: true,
+              invulnMs: 0,
+              flashMs: 0,
+              deathAnimMs: 0,
+              animState: 'idle',
+              rotation: 0,
+              ownerId: proj.ownerId,
+              damage: Math.max(2, Math.round(proj.damage * 0.35)),
+              tickRate: 0.5,
+              tickTimer: 0,
+              duration: 2.5,
+              maxDuration: 2.5,
+            };
+            state.entities.push(hazard);
+          }
           proj.alive = false;
           break;
         }
@@ -432,10 +477,29 @@ export function updateHazards(state: RunState, dt: number) {
     hazard.tickTimer -= dt;
     if (hazard.tickTimer <= 0) {
       hazard.tickTimer = hazard.tickRate;
+
+      if (hazard.faction === 'player' && hazard.tags.includes('Heal')) {
+        if (state.player.alive && dist(state.player.pos, hazard.pos) < hazard.radius) {
+          state.player.hp = Math.min(state.player.maxHp, state.player.hp + 2);
+        }
+        state.entities.forEach(t => {
+          if (t.type === 'summon' && t.alive && dist(t.pos, hazard.pos) < hazard.radius) {
+            t.hp = Math.min(t.maxHp, t.hp + 2);
+          }
+          if (t.type === 'enemy' && t.alive && hazard.tags.includes('Debuff') && dist(t.pos, hazard.pos) < hazard.radius) {
+            (t as any)._weakenedMs = 1000;
+          }
+        });
+        return;
+      }
+
       // Damage entities in range
       const targetFaction = hazard.faction === 'player' ? 'enemy' : 'player';
       state.entities.forEach(t => {
         if (t.alive && t.faction === targetFaction && dist(t.pos, hazard.pos) < hazard.radius) {
+          if (hazard.tags.includes('Debuff') && t.type === 'enemy') {
+            (t as any)._rootMs = 300;
+          }
           processDamage({
             attackerId: hazard.ownerId,
             targetId: t.id,
@@ -573,8 +637,12 @@ export function cleanupEntities(state: RunState) {
 export function updateTimers(state: RunState, dt: number) {
   (state.player as any)._brambleCd = Math.max(0, ((state.player as any)._brambleCd || 0) - dt);
   (state.player as any)._barkShieldCooldown = Math.max(0, ((state.player as any)._barkShieldCooldown || 0) - dt);
+  (state.player as any)._fungalLinkMs = Math.max(0, ((state.player as any)._fungalLinkMs || 0) - dt * 1000);
 
   const updateEntity = (e: Entity) => {
+    if ((e as any)._weakenedMs > 0) (e as any)._weakenedMs -= dt * 1000;
+    if ((e as any)._rootMs > 0) (e as any)._rootMs -= dt * 1000;
+    if ((e as any).abilityPopupMs > 0) (e as any).abilityPopupMs -= dt * 1000;
     if (e.invulnMs > 0) e.invulnMs -= dt * 1000;
     if (e.flashMs > 0) e.flashMs -= dt * 1000;
     if (!e.alive && e.deathAnimMs > 0) e.deathAnimMs -= dt * 1000;

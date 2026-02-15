@@ -240,10 +240,10 @@ export class Game {
 
     if (this.pendingLevelUps > 0) {
       this.showLevelUp();
-    } else if (this.phase === 'levelup' && this.state.combatActive) {
+    } else if (this.state.combatActive) {
       this.setPhase('combat');
     } else {
-      this.setPhase('map');
+      this.completeNode();
     }
   }
 
@@ -613,6 +613,8 @@ export class Game {
       delete (player as any)._nextCooldownReduction;
     }
 
+    player.animState = 'attack';
+
     if (def.summonId) {
       this.spawnSummon(def);
     } else if (def.projectileSpeed) {
@@ -622,13 +624,16 @@ export class Game {
     } else if (def.id === 'wild_charge') {
       this.useDash(def);
     } else if (def.id === 'fungal_link') {
-      // Heal from summon damage for duration (simplified)
+      (player as any)._fungalLinkMs = (def.duration || 6) * 1000;
+      if (this.renderer) this.renderer.spawnParticles(player.pos.x, player.pos.y, '#81c784', 10);
       addCombatLog(this.state, {
         type: 'heal',
         source: 'player',
         details: `Activated Fungal Link (${def.duration}s)`,
       });
     }
+
+    this.spawnSkillVisuals(def.id);
 
     addCombatLog(this.state, {
       type: 'trigger',
@@ -803,6 +808,13 @@ export class Game {
 
     if (def.duration && def.duration > 0) {
       // Create hazard zone (player-owned)
+      const hazardTags = [...def.tags];
+      if (def.id === 'entangling_vines' && !hazardTags.includes('Debuff')) hazardTags.push('Debuff');
+      if (def.id === 'totemic_ward') {
+        if (!hazardTags.includes('Heal')) hazardTags.push('Heal');
+        if (!hazardTags.includes('Debuff')) hazardTags.push('Debuff');
+      }
+
       const hazard: any = {
         id: `hazard_${Date.now()}_${Math.random()}`,
         type: 'hazard',
@@ -812,13 +824,13 @@ export class Game {
         radius,
         speed: 0,
         faction: 'player',
-        tags: def.tags,
+        tags: hazardTags,
         alive: true,
         invulnMs: 0, flashMs: 0, deathAnimMs: 0,
         animState: 'idle',
         rotation: 0,
         ownerId: 'player',
-        damage: (def.damage || 4) * player.damageScalar,
+        damage: def.id === 'totemic_ward' ? 0 : (def.damage || 4) * player.damageScalar,
         tickRate: 0.5,
         tickTimer: 0,
         duration: def.duration,
@@ -877,6 +889,23 @@ export class Game {
     player.invulnMs = 200;
   }
 
+
+
+  private spawnSkillVisuals(skillId: string) {
+    if (!this.renderer) return;
+    const { x, y } = this.state.player.pos;
+    const palette: Record<string, string> = {
+      summon_briar_wolf: '#66bb6a',
+      entangling_vines: '#8bc34a',
+      spore_bolt: '#7e57c2',
+      spirit_swarm: '#ab47bc',
+      thornburst: '#ef5350',
+      totemic_ward: '#4dd0e1',
+      fungal_link: '#81c784',
+      wild_charge: '#ffb74d',
+    };
+    this.renderer.spawnParticles(x, y, palette[skillId] || '#90caf9', 8);
+  }
 
   private collectEncounterLoot(items: Array<{ id: string; name: string; rarity: any; description: string; triggerSentence: string }>) {
     items.forEach(item => {
