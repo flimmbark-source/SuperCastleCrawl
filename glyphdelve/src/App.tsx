@@ -18,6 +18,7 @@ initializeRegistry();
 const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
+  const canvasAttachedRef = useRef(false);
 
   const [settings, setSettings] = useState<AccessibilitySettings>(loadSettings());
   const [phase, setPhase] = useState<GamePhase>('menu');
@@ -28,7 +29,15 @@ const App: React.FC = () => {
   const [fps, setFps] = useState(60);
   const [debugToggles, setDebugToggles] = useState({ hitboxes: false, triggers: false, caps: true });
   const [seed, setSeed] = useState<number>(Date.now());
-  const [stateVersion, setStateVersion] = useState(0);
+  const [lootTooltip, setLootTooltip] = useState<{ item: RunState['encounterLoot'][number]; x: number; y: number } | null>(null);
+
+  const setLootTooltipFromRow = useCallback((item: RunState['encounterLoot'][number], target: HTMLDivElement) => {
+    const rect = target.getBoundingClientRect();
+    const tooltipWidth = 170;
+    const x = Math.min(rect.right + 8, window.innerWidth - tooltipWidth - 8);
+    const y = Math.min(rect.top, window.innerHeight - 78);
+    setLootTooltip({ item, x, y: Math.max(8, y) });
+  }, []);
 
   useEffect(() => {
     let frames = 0;
@@ -46,6 +55,13 @@ const App: React.FC = () => {
 
   useEffect(() => { applyFontScale(settings.fontScale); }, [settings.fontScale]);
 
+  useEffect(() => {
+    if (phase === 'menu') return;
+    if (!gameRef.current || !canvasRef.current || canvasAttachedRef.current) return;
+    gameRef.current.attachCanvas(canvasRef.current);
+    canvasAttachedRef.current = true;
+  }, [phase]);
+
   const startNewRun = useCallback((runSeed?: number) => {
     const useSeed = runSeed ?? Date.now();
     setSeed(useSeed);
@@ -60,7 +76,11 @@ const App: React.FC = () => {
     }, settings);
 
     gameRef.current = game;
-    if (canvasRef.current) game.attachCanvas(canvasRef.current);
+    canvasAttachedRef.current = false;
+    if (canvasRef.current) {
+      game.attachCanvas(canvasRef.current);
+      canvasAttachedRef.current = true;
+    }
     game.start();
     setState(game.state);
   }, [settings]);
@@ -110,7 +130,7 @@ const App: React.FC = () => {
       {state && (phase === 'combat' || phase === 'levelup') && (
         <>
           <HUD player={state.player} state={state} floor={state.floor} nodeIndex={state.currentNodeIndex} />
-          <SidePanel state={state} />
+          <SidePanel state={state} onUseInventoryItem={(itemId) => gameRef.current?.useInventoryItem(itemId)} />
         </>
       )}
 
@@ -130,11 +150,11 @@ const App: React.FC = () => {
       )}
 
       {phase === 'levelup' && (
-        <LevelUpModal offers={levelUpOffers} onChoose={(id) => gameRef.current?.chooseLevelUp(id)} tooltipMode={settings.tooltipMode} />
+        <LevelUpModal offers={levelUpOffers} playerLevel={state?.player.level || 1} onChoose={(id) => gameRef.current?.chooseLevelUp(id)} tooltipMode={settings.tooltipMode} />
       )}
 
       {phase === 'shrine' && state && (
-        <ShrineModal state={state} onComplete={() => gameRef.current?.completeNode()} onStateChange={() => setStateVersion(v => v + 1)} />
+        <ShrineModal state={state} onComplete={() => gameRef.current?.completeNode()} onStateChange={() => setState({ ...state })} />
       )}
 
       {phase === 'recovery' && state && (
@@ -158,6 +178,54 @@ const App: React.FC = () => {
               <button style={gameStyles.eventBtn} onClick={() => gameRef.current?.applyEvent(1)}>Gain +10 Max HP</button>
             </div>
           </div>
+        </div>
+      )}
+
+
+      {phase === 'loot' && state && (
+        <div style={gameStyles.eventOverlay}>
+          <div style={{ ...gameStyles.eventCard, maxWidth: 520 }}>
+            <h2 style={gameStyles.eventTitle}>Loot Secured</h2>
+            <p style={gameStyles.eventDesc}>You found {state.encounterLoot.length} item{state.encounterLoot.length === 1 ? '' : 's'} this encounter.</p>
+            <div style={{ maxHeight: 240, overflowY: 'auto', textAlign: 'left', margin: '12px 0', border: '1px solid #333', borderRadius: 6, padding: 10 }}>
+              {state.encounterLoot.map((item, idx) => (
+                <div
+                  key={`${item.id}_${idx}`}
+                  style={{ marginBottom: 6, padding: '4px 6px', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 4, cursor: 'default' }}
+                  onMouseEnter={(e) => setLootTooltipFromRow(item, e.currentTarget)}
+                  onMouseLeave={() => setLootTooltip(null)}
+                >
+                  <div style={{ color: '#ffd54f', fontFamily: 'monospace', fontSize: 11, display: 'flex', justifyContent: 'space-between' }}>
+                    <span>{item.name}</span>
+                    <span style={{ color: '#9aa6bf' }}>[{item.rarity}]</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button style={gameStyles.eventBtn} onClick={() => gameRef.current?.confirmEncounterLoot()}>Continue Delve</button>
+          </div>
+        </div>
+      )}
+
+
+      {lootTooltip && phase === 'loot' && (
+        <div
+          style={{
+            position: 'fixed',
+            left: lootTooltip.x,
+            top: lootTooltip.y,
+            maxWidth: 170,
+            backgroundColor: 'rgba(10, 14, 25, 0.95)',
+            border: '1px solid #38445f',
+            borderRadius: 6,
+            padding: '4px 5px',
+            zIndex: 140,
+            pointerEvents: 'none',
+            boxShadow: '0 3px 10px rgba(0,0,0,0.35)',
+          }}
+        >
+          <div style={{ color: '#d7e3ff', fontFamily: 'monospace', fontSize: 8, lineHeight: 1.2 }}>{lootTooltip.item.description}</div>
+          <div style={{ color: '#8bc8ff', fontFamily: 'monospace', fontSize: 8, lineHeight: 1.2, marginTop: 3 }}>{lootTooltip.item.effectSummary}</div>
         </div>
       )}
 

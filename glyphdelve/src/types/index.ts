@@ -219,6 +219,7 @@ export interface PlayerEntity extends Entity {
   resource: number;
   maxResource: number;
   buildTags: Map<Tag, number>;
+  inventory: InventoryItem[];
 }
 
 export interface ActiveSkill {
@@ -239,6 +240,15 @@ export interface ActiveItem {
   melded: boolean;
 }
 
+export interface InventoryItem {
+  id: string;
+  name: string;
+  description: string;
+  effect: 'heal' | 'resource' | 'cleanse';
+  value: number;
+  charges: number;
+}
+
 export interface EnemyEntity extends Entity {
   type: 'enemy';
   def: EnemyDef;
@@ -248,6 +258,8 @@ export interface EnemyEntity extends Entity {
   behaviorState: string;
   poisonStacks: number;
   currentPhase?: number;
+  abilityPopupText?: string;
+  abilityPopupMs?: number;
 }
 
 export interface SummonEntity extends Entity {
@@ -303,6 +315,14 @@ export interface FloorMap {
 }
 
 // --- Run State ---
+export interface EncounterLootEntry {
+  id: string;
+  name: string;
+  rarity: Rarity;
+  description: string;
+  effectSummary: string;
+}
+
 export interface RunState {
   seed: number;
   floor: number;
@@ -325,6 +345,7 @@ export interface RunState {
   triggerChainDepths: number[];
   meldHistory: MeldLogEntry[];
   deathCauseTaxonomy: Map<string, number>;
+  encounterLoot: EncounterLootEntry[];
 }
 
 export interface CombatLogEntry {

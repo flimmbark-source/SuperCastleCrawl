@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import type { RunState, PlayerEntity, Tag, CombatLogEntry } from '../../types';
+import type { RunState, PlayerEntity, CombatLogEntry, ActiveItem, InventoryItem } from '../../types';
 
 interface SidePanelProps {
   state: RunState;
+  onUseInventoryItem: (itemId: string) => void;
 }
 
-export const SidePanel: React.FC<SidePanelProps> = ({ state }) => {
+export const SidePanel: React.FC<SidePanelProps> = ({ state, onUseInventoryItem }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [tab, setTab] = useState<'tags' | 'log' | 'build'>('build');
 
@@ -35,7 +36,7 @@ export const SidePanel: React.FC<SidePanelProps> = ({ state }) => {
       </div>
 
       <div style={styles.content}>
-        {tab === 'build' && <BuildTab player={state.player} state={state} />}
+        {tab === 'build' && <BuildTab player={state.player} state={state} onUseInventoryItem={onUseInventoryItem} />}
         {tab === 'tags' && <TagsTab player={state.player} />}
         {tab === 'log' && <LogTab log={state.combatLog} />}
       </div>
@@ -43,12 +44,12 @@ export const SidePanel: React.FC<SidePanelProps> = ({ state }) => {
   );
 };
 
-const BuildTab: React.FC<{ player: PlayerEntity; state: RunState }> = ({ player, state }) => (
+const BuildTab: React.FC<{ player: PlayerEntity; state: RunState; onUseInventoryItem: (itemId: string) => void }> = ({ player, state, onUseInventoryItem }) => (
   <div style={styles.buildTab}>
     <div style={styles.buildSection}>
       <h4 style={styles.sectionTitle}>Skills ({player.skills.length}/{player.maxSkillSlots})</h4>
       {player.skills.map(s => (
-        <div key={s.def.id} style={styles.buildItem}>
+        <div key={s.def.id} style={styles.buildItem} title={`${s.def.description}\n${s.def.triggerSentence}`}>
           <span style={styles.buildItemName}>{s.def.name}</span>
           <span style={styles.buildItemTags}>{s.def.tags.slice(0, 2).join(', ')}</span>
         </div>
@@ -57,7 +58,7 @@ const BuildTab: React.FC<{ player: PlayerEntity; state: RunState }> = ({ player,
     <div style={styles.buildSection}>
       <h4 style={styles.sectionTitle}>Passives ({player.passives.length})</h4>
       {player.passives.map(p => (
-        <div key={p.def.id} style={styles.buildItem}>
+        <div key={p.def.id} style={styles.buildItem} title={`${p.def.description}\n${p.def.triggerSentence}`}>
           <span style={styles.buildItemName}>{p.def.name}</span>
           <span style={styles.buildItemTags}>{p.def.tags.slice(0, 2).join(', ')}</span>
         </div>
@@ -66,11 +67,33 @@ const BuildTab: React.FC<{ player: PlayerEntity; state: RunState }> = ({ player,
     <div style={styles.buildSection}>
       <h4 style={styles.sectionTitle}>Items ({player.items.length})</h4>
       {player.items.map(i => (
-        <div key={i.def.id} style={styles.buildItem}>
-          <span style={styles.buildItemName}>{i.def.name}</span>
-          <span style={styles.buildItemRarity}>[{i.def.rarity}]</span>
+        <div key={i.def.id} style={styles.itemCard} title={buildEquippedItemTooltip(i)}>
+          <div style={styles.buildItem}>
+            <span style={styles.buildItemName}>{i.def.name}</span>
+            <span style={styles.buildItemRarity}>[{i.def.rarity}]</span>
+          </div>
+          <div style={styles.itemDescription}>{buildItemEffectSummary(i)}</div>
         </div>
       ))}
+      {player.items.length === 0 && <p style={styles.emptyText}>No equipped items yet</p>}
+    </div>
+    <div style={styles.buildSection}>
+      <h4 style={styles.sectionTitle}>Inventory ({player.inventory.length})</h4>
+      <div style={styles.inventoryContainer}>
+        {player.inventory.length === 0 && <p style={styles.emptyText}>No consumables in pack</p>}
+        {player.inventory.map(item => (
+          <button
+            key={item.id}
+            style={styles.inventoryButton}
+            onClick={() => onUseInventoryItem(item.id)}
+            title={buildInventoryTooltip(item)}
+          >
+            <span style={styles.inventoryName}>{item.name}</span>
+            <span style={styles.inventoryDesc}>{item.description}</span>
+            <span style={styles.inventoryEffect}>{inventoryEffectSummary(item)} · x{item.charges}</span>
+          </button>
+        ))}
+      </div>
     </div>
     <div style={styles.buildSection}>
       <h4 style={styles.sectionTitle}>Active Summons</h4>
@@ -112,6 +135,35 @@ const LogTab: React.FC<{ log: CombatLogEntry[] }> = ({ log }) => (
   </div>
 );
 
+function buildItemEffectSummary(item: ActiveItem): string {
+  if (item.def.effects.length === 0) return item.def.description;
+  return item.def.effects.map(effect => {
+    if (effect.type === 'stat_mod' && effect.stat) {
+      const amt = effect.percent ? `${Math.round((effect.value || 0) * 100)}%` : `${effect.value || 0}`;
+      return `${effect.stat.replaceAll('_', ' ')} +${amt}`;
+    }
+    if (effect.type === 'trigger' && effect.trigger) {
+      return `${effect.trigger.event}: ${effect.trigger.effect.replaceAll('_', ' ')}`;
+    }
+    if (effect.description) return effect.description;
+    return effect.type;
+  }).join(' · ');
+}
+
+function buildEquippedItemTooltip(item: ActiveItem): string {
+  return `${item.def.name}\n${item.def.description}\n${buildItemEffectSummary(item)}`;
+}
+
+function inventoryEffectSummary(item: InventoryItem): string {
+  if (item.effect === 'heal') return `Restore ${item.value} HP`;
+  if (item.effect === 'resource') return `Restore ${item.value} Resource`;
+  return 'Cleanse negative effects';
+}
+
+function buildInventoryTooltip(item: InventoryItem): string {
+  return `${item.name}\n${item.description}\nEffect: ${inventoryEffectSummary(item)}\nCharges: ${item.charges}`;
+}
+
 const LOG_COLORS: Record<string, string> = {
   damage: '#ef5350',
   heal: '#4caf50',
@@ -124,7 +176,7 @@ const LOG_COLORS: Record<string, string> = {
 };
 
 const styles: Record<string, React.CSSProperties> = {
-  panel: { position: 'absolute', top: 8, right: 8, width: 220, maxHeight: 'calc(100vh - 80px)', backgroundColor: 'rgba(13,13,26,0.92)', borderRadius: 8, border: '1px solid #333', zIndex: 10, display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+  panel: { position: 'absolute', top: 8, right: 8, width: 248, maxHeight: 'calc(100vh - 80px)', backgroundColor: 'rgba(13,13,26,0.92)', borderRadius: 8, border: '1px solid #333', zIndex: 10, display: 'flex', flexDirection: 'column', overflow: 'hidden' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px', borderBottom: '1px solid #333' },
   tabs: { display: 'flex', gap: 2 },
   tab: { padding: '3px 8px', border: 'none', borderRadius: 3, color: '#ccc', fontFamily: 'monospace', fontSize: 10, cursor: 'pointer', textTransform: 'capitalize' },
@@ -134,13 +186,20 @@ const styles: Record<string, React.CSSProperties> = {
   buildTab: { display: 'flex', flexDirection: 'column', gap: 8 },
   buildSection: {},
   sectionTitle: { fontSize: 10, color: '#81d4fa', fontFamily: 'monospace', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: 1 },
-  buildItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0' },
+  buildItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0', gap: 8 },
   buildItemName: { fontSize: 10, color: '#ccc', fontFamily: 'monospace' },
   buildItemTags: { fontSize: 8, color: '#666', fontFamily: 'monospace' },
   buildItemRarity: { fontSize: 8, color: '#888', fontFamily: 'monospace' },
+  itemCard: { border: '1px solid #2e3446', borderRadius: 4, padding: '4px 6px', marginBottom: 4, backgroundColor: 'rgba(255,255,255,0.02)' },
+  itemDescription: { fontSize: 9, color: '#97a2bd', fontFamily: 'monospace', lineHeight: 1.25 },
+  inventoryContainer: { display: 'flex', flexDirection: 'column', gap: 6 },
+  inventoryButton: { border: '1px solid #455a64', backgroundColor: 'rgba(38, 50, 56, 0.45)', borderRadius: 4, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 2, padding: '6px', cursor: 'pointer' },
+  inventoryName: { fontSize: 10, color: '#e0f2f1', fontFamily: 'monospace', fontWeight: 'bold' },
+  inventoryDesc: { fontSize: 9, color: '#9fb0c9', fontFamily: 'monospace' },
+  inventoryEffect: { fontSize: 9, color: '#c5e1a5', fontFamily: 'monospace' },
   summonCount: { fontSize: 12, color: '#66bb6a', fontFamily: 'monospace' },
   tagsTab: { display: 'flex', flexDirection: 'column', gap: 4 },
-  emptyText: { fontSize: 10, color: '#555', fontFamily: 'monospace' },
+  emptyText: { fontSize: 10, color: '#555', fontFamily: 'monospace', margin: 0 },
   tagRow: { display: 'flex', alignItems: 'center', gap: 4 },
   tagName: { fontSize: 10, color: '#bbb', fontFamily: 'monospace', minWidth: 55 },
   tagBar: { flex: 1, height: 6, backgroundColor: '#1a1a2e', borderRadius: 2, overflow: 'hidden' },

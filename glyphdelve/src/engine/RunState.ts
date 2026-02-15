@@ -37,55 +37,45 @@ export function createPlayer(): PlayerEntity {
     resource: 50,
     maxResource: 50,
     buildTags: new Map(),
+    inventory: [],
   };
 }
 
 export function generateFloorMap(floor: number, rng: SeededRNG): FloorMap {
-  const nodes: MapNode[] = [];
-  const nodeTypes: NodeType[] = [];
+  const floorOneNodes: NodeType[] = [
+    'combat',
+    'combat',
+    'shrine',
+    'recovery',
+    'elite',
+    'combat',
+    'event',
+    'combat',
+    'boss',
+  ];
 
-  // Fixed distribution per floor: 5 combat, 1 elite, 1 shrine, 1 recovery/event, 1 boss
-  // Shrine must appear no later than node 5 on floor 1
-  const combatSlots = 5;
-  const eliteSlot = 1;
-  const shrineSlot = 1;
-  const recoverySlot = 1;
-  const bossSlot = 1;
-  const total = combatSlots + eliteSlot + shrineSlot + recoverySlot + bossSlot;
+  const floorTwoNodes: NodeType[] = [
+    'combat',
+    'elite',
+    'combat',
+    'event',
+    'combat',
+    'elite',
+    'combat',
+    'event',
+    'boss',
+  ];
 
-  // Build ordered types: boss is always last
-  const pool: NodeType[] = [];
-  for (let i = 0; i < combatSlots; i++) pool.push('combat');
-  pool.push('elite');
-  pool.push('shrine');
-  pool.push('recovery');
+  const ordered = floor === 1 ? floorOneNodes : floorTwoNodes;
 
-  // Shuffle non-boss nodes
-  const shuffled = rng.shuffle(pool);
-
-  // Ensure shrine appears in first 5 nodes (index 0-4) for floor 1
-  if (floor === 1) {
-    const shrineIdx = shuffled.indexOf('shrine');
-    if (shrineIdx >= 5) {
-      const swapIdx = rng.nextInt(2, 4);
-      [shuffled[shrineIdx], shuffled[swapIdx]] = [shuffled[swapIdx], shuffled[shrineIdx]];
-    }
-  }
-
-  // Boss always last
-  shuffled.push('boss');
-
-  for (let i = 0; i < total; i++) {
-    const node: MapNode = {
-      id: `f${floor}_n${i}`,
-      floor,
-      index: i,
-      type: shuffled[i],
-      completed: false,
-      connections: i < total - 1 ? [`f${floor}_n${i + 1}`] : [],
-    };
-    nodes.push(node);
-  }
+  const nodes: MapNode[] = ordered.map((type, i) => ({
+    id: `f${floor}_n${i}`,
+    floor,
+    index: i,
+    type,
+    completed: false,
+    connections: i < ordered.length - 1 ? [`f${floor}_n${i + 1}`] : [],
+  }));
 
   return { floor, nodes };
 }
@@ -119,6 +109,7 @@ export function createRunState(seed: number): RunState {
     triggerChainDepths: [],
     meldHistory: [],
     deathCauseTaxonomy: new Map(),
+    encounterLoot: [],
   };
 }
 

@@ -11,10 +11,10 @@ export interface RenderConfig {
 
 const TILE_SIZE = 32;
 const COLORS = {
-  bg: '#1a1a2e',
-  floor: '#2a2a3e',
-  floorAlt: '#252538',
-  wall: '#3a3a4e',
+  bg: '#161623',
+  floor: '#303448',
+  floorAlt: '#2b3042',
+  wall: '#434a60',
   player: '#4fc3f7',
   playerOutline: '#0288d1',
   enemy: '#ef5350',
@@ -140,6 +140,11 @@ export class Renderer {
     const endX = startX + Math.ceil(this.width / TILE_SIZE) + 2;
     const endY = startY + Math.ceil(this.height / TILE_SIZE) + 2;
 
+    // Ambient base so the arena is always visible behind entities
+    const pad = TILE_SIZE * 2;
+    ctx.fillStyle = COLORS.bg;
+    ctx.fillRect((startX - 1) * TILE_SIZE - pad, (startY - 1) * TILE_SIZE - pad, (endX - startX + 3) * TILE_SIZE + pad * 2, (endY - startY + 3) * TILE_SIZE + pad * 2);
+
     // Arena bounds
     const arenaSize = 14;
 
@@ -153,6 +158,19 @@ export class Renderer {
           ctx.fillStyle = COLORS.wall;
         }
         ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+
+        // Tile seam + light noise for readability of movement space
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x * TILE_SIZE + 0.5, y * TILE_SIZE + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+
+        if (inArena && (x + y) % 5 === 0) {
+          ctx.strokeStyle = 'rgba(153, 171, 208, 0.12)';
+          ctx.beginPath();
+          ctx.moveTo(x * TILE_SIZE + 8, y * TILE_SIZE + TILE_SIZE - 8);
+          ctx.lineTo(x * TILE_SIZE + TILE_SIZE - 8, y * TILE_SIZE + 8);
+          ctx.stroke();
+        }
 
         // Arena border
         if (inArena) {
@@ -189,6 +207,16 @@ export class Renderer {
     ctx.fill();
     ctx.stroke();
 
+    // Bark shield visual ring
+    const barkShield = (player as any)._barkShieldHp || 0;
+    if (barkShield > 0) {
+      ctx.strokeStyle = 'rgba(139, 195, 74, 0.7)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x, y, player.radius + 6, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
     // Direction indicator
     ctx.fillStyle = '#fff';
     const dirX = x + Math.cos(player.rotation) * player.radius * 0.5;
@@ -196,6 +224,14 @@ export class Renderer {
     ctx.beginPath();
     ctx.arc(dirX, dirY, 3, 0, Math.PI * 2);
     ctx.fill();
+
+    if (player.animState === 'attack') {
+      ctx.strokeStyle = 'rgba(129, 212, 250, 0.7)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, player.radius + 8, 0, Math.PI * 2);
+      ctx.stroke();
+    }
 
     // Ally marker (not color-only) - small triangle above
     ctx.fillStyle = '#fff';
@@ -273,6 +309,15 @@ export class Renderer {
     ctx.fillRect(x - barW / 2, barY, barW, barH);
     ctx.fillStyle = COLORS.healthBarEnemy;
     ctx.fillRect(x - barW / 2, barY, barW * hpRatio, barH);
+
+    if (enemy.abilityPopupMs && enemy.abilityPopupMs > 0 && enemy.abilityPopupText) {
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(x - 34, y - enemy.radius - 28, 68, 12);
+      ctx.fillStyle = '#f5f5f5';
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(enemy.abilityPopupText, x, y - enemy.radius - 19);
+    }
 
     // Poison stack indicator
     if (enemy.poisonStacks > 0) {
@@ -396,6 +441,13 @@ export class Renderer {
       ctx.lineTo(x + 3, y - r - 4);
       ctx.closePath();
       ctx.fill();
+    }
+
+    if (summon.animState === 'attack') {
+      ctx.strokeStyle = 'rgba(129, 199, 132, 0.7)';
+      ctx.beginPath();
+      ctx.arc(x, y, r + 5, 0, Math.PI * 2);
+      ctx.stroke();
     }
 
     // Duration bar

@@ -10,10 +10,20 @@ import { registry } from '../engine/DataRegistry';
 let nextEntityId = 1000;
 function genId(): string { return `e_${nextEntityId++}`; }
 
+function showEnemyAbility(enemy: EnemyEntity, label: string) {
+  enemy.abilityPopupText = label;
+  enemy.abilityPopupMs = 1800;
+}
+
 export function updateEnemyAI(state: RunState, dt: number) {
   state.entities.forEach(e => {
     if (e.type !== 'enemy' || !e.alive) return;
     const enemy = e as EnemyEntity;
+
+    if ((enemy as any)._rootMs > 0) {
+      enemy.animState = 'idle';
+      return;
+    }
 
     const target = findNearestPlayerAlly(state, enemy.pos);
     if (!target || !target.alive) return;
@@ -171,6 +181,7 @@ function tankAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: number)
     const slamCd = enemy.abilityCooldowns.get('ground_slam') || 0;
     if (slamCd <= 0 && d < 50) {
       enemy.abilityCooldowns.set('ground_slam', 6);
+      showEnemyAbility(enemy, 'Ground Slam');
       // AOE damage around self
       state.entities.forEach(e => {
         if (e.alive && e.faction === 'player' && dist(e.pos, enemy.pos) < 48) {
@@ -207,6 +218,7 @@ function blinkerAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: numb
   const blinkCd = enemy.abilityCooldowns.get('shadow_blink') || 0;
   if (blinkCd <= 0 && d > 80) {
     enemy.abilityCooldowns.set('shadow_blink', 4);
+    showEnemyAbility(enemy, 'Shadow Blink');
     // Teleport near target
     const angle = Math.random() * Math.PI * 2;
     enemy.pos.x = target.pos.x + Math.cos(angle) * 30;
@@ -252,6 +264,7 @@ function hazardGeneratorAI(enemy: EnemyEntity, target: Entity, state: RunState, 
   const cd = enemy.abilityCooldowns.get('spawn_gas_cloud') || 0;
   if (cd <= 0) {
     enemy.abilityCooldowns.set('spawn_gas_cloud', 5);
+    showEnemyAbility(enemy, 'Gas Cloud');
     enemy.animState = 'attack';
 
     const hazard: HazardEntity = {
@@ -333,6 +346,7 @@ function updateBossPhase(enemy: EnemyEntity, state: RunState, dt: number, target
     const cd = enemy.abilityCooldowns.get(ability.id) || 0;
     if (cd <= 0) {
       enemy.abilityCooldowns.set(ability.id, ability.cooldown);
+      showEnemyAbility(enemy, (ability as any).name || ability.id.replaceAll('_', ' '));
       executeBossAbility(enemy, ability, target, state);
       break; // One ability per frame
     }
