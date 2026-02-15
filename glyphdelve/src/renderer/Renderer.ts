@@ -111,6 +111,11 @@ export class Renderer {
       if (e.type === 'hazard' && e.alive) this.drawHazard(e as HazardEntity);
     });
 
+    // Draw ability telegraphs (below entities but above hazards)
+    state.entities.forEach(e => {
+      if (e.type === 'enemy') this.drawEnemyTelegraph(e as EnemyEntity);
+    });
+
     // Draw entities
     state.entities.forEach(e => {
       if (e.type === 'summon' && e.alive) this.drawSummon(e as SummonEntity);
@@ -237,6 +242,93 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
+  private drawEnemyTelegraph(enemy: EnemyEntity) {
+    if (!enemy.alive || !enemy.activeAbility) return;
+    const ability = enemy.activeAbility;
+
+    // Only draw telegraph during telegraph phase
+    if (ability.phase !== 'telegraph') return;
+
+    const ctx = this.ctx;
+    const progress = ability.windupProgress || 0;
+
+    // Draw telegraph based on ability type
+    switch (ability.id) {
+      case 'blink':
+        // Show destination with pulsing indicator
+        if (ability.targetPos) {
+          this.drawTelegraph(ability.targetPos.x, ability.targetPos.y, enemy.radius * 1.5, progress);
+          // Line from current to target
+          ctx.strokeStyle = COLORS.telegraphOutline;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([5, 5]);
+          ctx.beginPath();
+          ctx.moveTo(enemy.pos.x, enemy.pos.y);
+          ctx.lineTo(ability.targetPos.x, ability.targetPos.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        break;
+
+      case 'charge':
+      case 'lunge':
+        // Show path and impact zone
+        if (ability.targetPos && ability.startPos) {
+          const { startPos, targetPos } = ability;
+          // Draw line showing charge path
+          ctx.strokeStyle = COLORS.telegraphOutline;
+          ctx.lineWidth = 3;
+          ctx.setLineDash([5, 5]);
+          ctx.beginPath();
+          ctx.moveTo(startPos.x, startPos.y);
+          ctx.lineTo(targetPos.x, targetPos.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Impact zone at target
+          const impactRadius = ability.id === 'charge' ? 80 : 40;
+          this.drawTelegraph(targetPos.x, targetPos.y, impactRadius, progress);
+        }
+        break;
+
+      case 'burst_fire':
+        // Show cone/spread indicator
+        if (ability.targetPos) {
+          this.drawTelegraph(ability.targetPos.x, ability.targetPos.y, 50, progress);
+        }
+        break;
+
+      case 'retreat':
+        // Show retreat destination
+        if (ability.targetPos) {
+          this.drawTelegraph(ability.targetPos.x, ability.targetPos.y, enemy.radius, progress);
+          // Show mine drop location
+          if (ability.startPos) {
+            ctx.fillStyle = 'rgba(156, 39, 176, 0.3)';
+            ctx.strokeStyle = COLORS.hazardOutline;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(ability.startPos.x, ability.startPos.y, 30, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          }
+        }
+        break;
+
+      case 'hazard_spawn':
+        // Show hazard spawn location
+        if (ability.targetPos) {
+          this.drawTelegraph(ability.targetPos.x, ability.targetPos.y, 50, progress);
+        }
+        break;
+
+      case 'ground_slam':
+        // Show AOE around enemy
+        this.drawTelegraph(enemy.pos.x, enemy.pos.y, 120, progress);
+        break;
+    }
+  }
+
   private drawEnemy(enemy: EnemyEntity, state: RunState) {
     const ctx = this.ctx;
     const { x, y } = enemy.pos;
@@ -251,7 +343,16 @@ export class Renderer {
       return;
     }
 
-    if (enemy.flashMs > 0) {
+    // Blink fade effects
+    if (enemy.activeAbility?.id === 'blink') {
+      if (enemy.activeAbility.phase === 'telegraph') {
+        // Fade out during telegraph
+        ctx.globalAlpha = 1 - (enemy.activeAbility.windupProgress || 0);
+      } else if (enemy.activeAbility.phase === 'execute') {
+        // Faded out during teleport
+        ctx.globalAlpha = 0.2;
+      }
+    } else if (enemy.flashMs > 0) {
       ctx.globalAlpha = 0.5 + Math.sin(Date.now() * 0.02) * 0.3;
     }
 
@@ -270,6 +371,23 @@ export class Renderer {
     ctx.fillStyle = color;
     ctx.strokeStyle = outline;
     ctx.lineWidth = 2;
+
+    // Motion trail for charge/lunge during execute
+    if (!this.config.reducedMotion &&
+        enemy.activeAbility?.phase === 'execute' &&
+        (enemy.activeAbility.id === 'charge' || enemy.activeAbility.id === 'lunge')) {
+      const trail = enemy.activeAbility.startPos;
+      if (trail) {
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = color;
+        this.drawEnemyShape(enemy, trail.x, trail.y);
+        ctx.globalAlpha = 0.5;
+        const midX = (trail.x + x) / 2;
+        const midY = (trail.y + y) / 2;
+        this.drawEnemyShape(enemy, midX, midY);
+        ctx.globalAlpha = 1;
+      }
+    }
 
     this.drawEnemyShape(enemy, x, y);
 

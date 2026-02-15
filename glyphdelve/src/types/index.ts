@@ -265,6 +265,14 @@ export interface EnemyEntity extends Entity {
   behaviorState: string;
   poisonStacks: number;
   currentPhase?: number;
+  activeAbility?: {
+    id: string;
+    phase: 'telegraph' | 'execute' | 'recovery';
+    timer: number;
+    targetPos?: Vec2;
+    startPos?: Vec2;
+    windupProgress?: number;
+  };
 }
 
 export interface SummonEntity extends Entity {

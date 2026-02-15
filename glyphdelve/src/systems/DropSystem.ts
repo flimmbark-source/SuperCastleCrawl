@@ -19,7 +19,7 @@ export function rollDrops(
 
   if (enemyType === 'normal') {
     // Pity logic
-    let itemChance = DROP_RATES.normal.item;
+    let itemChance: number = DROP_RATES.normal.item;
     if (state.normalKillsSinceItem >= DROP_RATES.pityThreshold) {
       itemChance = DROP_RATES.pityItemChance;
     }

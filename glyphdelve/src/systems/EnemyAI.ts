@@ -10,10 +10,40 @@ import { registry } from '../engine/DataRegistry';
 let nextEntityId = 1000;
 function genId(): string { return `e_${nextEntityId++}`; }
 
+// Ability timing constants (in seconds)
+const ABILITY_TIMING = {
+  // Telegraph phase - visual indicator before ability
+  BLINK_TELEGRAPH: 0.4,
+  CHARGE_TELEGRAPH: 0.5,
+  LUNGE_TELEGRAPH: 0.3,
+  BURST_FIRE_TELEGRAPH: 0.35,
+  RETREAT_TELEGRAPH: 0.25,
+  HAZARD_TELEGRAPH: 0.4,
+  SLAM_TELEGRAPH: 0.5,
+
+  // Execute phase - ability actually happens
+  BLINK_EXECUTE: 0.2,
+  CHARGE_EXECUTE: 0.35,
+  LUNGE_EXECUTE: 0.2,
+  BURST_FIRE_EXECUTE: 0.25,
+  RETREAT_EXECUTE: 0.15,
+  HAZARD_EXECUTE: 0.15,
+  SLAM_EXECUTE: 0.3,
+
+  // Recovery phase - brief pause after ability
+  DEFAULT_RECOVERY: 0.2,
+};
+
 export function updateEnemyAI(state: RunState, dt: number) {
   state.entities.forEach(e => {
     if (e.type !== 'enemy' || !e.alive) return;
     const enemy = e as EnemyEntity;
+
+    // Update active ability if one is running
+    if (enemy.activeAbility) {
+      updateActiveAbility(enemy, state, dt);
+      return; // Don't do normal AI while ability is active
+    }
 
     const target = findNearestPlayerAlly(state, enemy.pos);
     if (!target || !target.alive) return;
@@ -60,133 +90,219 @@ export function updateEnemyAI(state: RunState, dt: number) {
   });
 }
 
-// --- Helper: count nearby allies for pack behavior ---
-function countNearbyAllies(state: RunState, enemy: EnemyEntity, radius: number): number {
-  let count = 0;
-  state.entities.forEach(e => {
-    if (e.type === 'enemy' && e.alive && e.id !== enemy.id && dist(e.pos, enemy.pos) < radius) {
-      count++;
+function updateActiveAbility(enemy: EnemyEntity, state: RunState, dt: number) {
+  if (!enemy.activeAbility) return;
+
+  const ability = enemy.activeAbility;
+  ability.timer -= dt;
+
+  // Update windup progress for animations
+  if (ability.phase === 'telegraph' && ability.windupProgress !== undefined) {
+    const totalTime = ABILITY_TIMING[`${ability.id.toUpperCase()}_TELEGRAPH` as keyof typeof ABILITY_TIMING] || 0.3;
+    ability.windupProgress = 1 - (ability.timer / totalTime);
+  }
+
+  // Phase transitions
+  if (ability.timer <= 0) {
+    switch (ability.phase) {
+      case 'telegraph':
+        executeAbility(enemy, state);
+        break;
+      case 'execute':
+        ability.phase = 'recovery';
+        ability.timer = ABILITY_TIMING.DEFAULT_RECOVERY;
+        enemy.animState = 'idle';
+        break;
+      case 'recovery':
+        enemy.activeAbility = undefined;
+        break;
     }
-  });
-  return count;
+  }
 }
 
-// --- Helper: get perpendicular flanking direction ---
-function getFlankDir(enemy: EnemyEntity, target: Entity, side: number): Vec2 {
-  const dir = dirTo(enemy.pos, target.pos);
-  // Rotate 45-70 degrees to one side for flanking
-  const angle = Math.atan2(dir.y, dir.x) + side * (Math.PI * 0.3);
-  return { x: Math.cos(angle), y: Math.sin(angle) };
+function startAbility(
+  enemy: EnemyEntity,
+  abilityId: string,
+  targetPos?: Vec2,
+  startPos?: Vec2
+) {
+  const telegraphTime = ABILITY_TIMING[`${abilityId.toUpperCase()}_TELEGRAPH` as keyof typeof ABILITY_TIMING] || 0.3;
+
+  enemy.activeAbility = {
+    id: abilityId,
+    phase: 'telegraph',
+    timer: telegraphTime,
+    targetPos,
+    startPos: startPos || { ...enemy.pos },
+    windupProgress: 0,
+  };
+  enemy.animState = 'attack'; // Wind-up pose
 }
 
-// =====================================================
-// MELEE CHASER - Skeleton Chaser
-// Behaviors: Pack flanking, lunge attack, wounded frenzy,
-// circling before attack
-// =====================================================
-function meleeChaseAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: number) {
-  const d = dist(enemy.pos, target.pos);
-  const hpRatio = enemy.hp / enemy.maxHp;
+function executeAbility(enemy: EnemyEntity, state: RunState) {
+  if (!enemy.activeAbility) return;
 
-  // Determine flanking side based on entity ID (consistent per enemy)
-  const idNum = parseInt(enemy.id.replace(/\D/g, '')) || 0;
-  const flankSide = idNum % 2 === 0 ? 1 : -1;
+  const ability = enemy.activeAbility;
+  const executeTime = ABILITY_TIMING[`${ability.id.toUpperCase()}_EXECUTE` as keyof typeof ABILITY_TIMING] || 0.2;
 
-  // Wounded frenzy: below 30% HP, move faster and attack more aggressively
-  const frenzied = hpRatio < 0.3;
-  const speedMult = frenzied ? 1.4 : 1.0;
-  const attackCdMult = frenzied ? 0.6 : 1.0;
+  ability.phase = 'execute';
+  ability.timer = executeTime;
 
-  // Lunge attack: charge forward when at medium range
-  const lungeCd = enemy.abilityCooldowns.get('lunge') || 0;
-  if (lungeCd <= 0 && d > 40 && d < 90) {
-    enemy.abilityCooldowns.set('lunge', 5);
-    // Dash toward target
-    const dir = dirTo(enemy.pos, target.pos);
-    const lungeDistance = Math.min(d - 15, 60);
-    enemy.pos.x += dir.x * lungeDistance;
-    enemy.pos.y += dir.y * lungeDistance;
-    enemy.animState = 'attack';
-    // Deal lunge damage
+  // Execute the actual ability effect
+  switch (ability.id) {
+    case 'blink':
+      executeBlink(enemy, state);
+      break;
+    case 'charge':
+      executeCharge(enemy, state);
+      break;
+    case 'lunge':
+      executeLunge(enemy, state);
+      break;
+    case 'burst_fire':
+      executeBurstFire(enemy, state);
+      break;
+    case 'retreat':
+      executeRetreat(enemy, state);
+      break;
+    case 'hazard':
+      executeHazardSpawn(enemy, state);
+      break;
+    case 'slam':
+      executeGroundSlam(enemy, state);
+      break;
+  }
+}
+
+// --- Execute functions for each ability ---
+
+function executeBlink(enemy: EnemyEntity, state: RunState) {
+  if (!enemy.activeAbility?.targetPos) return;
+
+  // Fade effect handled by renderer checking activeAbility phase
+  enemy.pos = { ...enemy.activeAbility.targetPos };
+  clampToArena(enemy);
+
+  // Backstab damage to target
+  const target = findNearestPlayerAlly(state, enemy.pos);
+  if (target && dist(enemy.pos, target.pos) < 50) {
     processDamage({
       attackerId: enemy.id,
       targetId: target.id,
-      baseDamage: Math.round(enemy.def.damage * 1.3),
+      baseDamage: Math.round(enemy.def.damage * 1.5),
       damageType: 'physical',
-      tags: ['Physical', 'Melee'],
+      tags: ['Spirit', 'Melee'],
       isProjectile: false,
     }, state);
-    clampToArena(enemy);
-    return;
   }
+}
 
-  // Pack flanking: if 2+ allies nearby, circle around to attack from side
-  const nearbyAllies = countNearbyAllies(state, enemy, 120);
-  const shouldFlank = nearbyAllies >= 1 && d > enemy.def.attackRange && d < 120;
+function executeCharge(enemy: EnemyEntity, state: RunState) {
+  if (!enemy.activeAbility?.targetPos || !enemy.activeAbility.startPos) return;
 
-  if (d > enemy.def.attackRange) {
-    let dir: Vec2;
-    if (shouldFlank) {
-      dir = getFlankDir(enemy, target, flankSide);
-    } else {
-      dir = dirTo(enemy.pos, target.pos);
-    }
-    enemy.pos.x += dir.x * enemy.speed * speedMult * dt;
-    enemy.pos.y += dir.y * enemy.speed * speedMult * dt;
-    enemy.rotation = Math.atan2(dir.y, dir.x);
-    enemy.animState = 'move';
-  } else {
-    // Attack
-    const cd = enemy.abilityCooldowns.get('basic_attack') || 0;
-    if (cd <= 0) {
-      enemy.abilityCooldowns.set('basic_attack', enemy.def.attackCooldown * attackCdMult);
-      enemy.animState = 'attack';
-      // Pack bonus: +15% damage per nearby ally (max +45%)
-      const packBonus = Math.min(nearbyAllies * 0.15, 0.45);
+  // Lerp to target position during execute phase
+  const progress = 1 - (enemy.activeAbility.timer / ABILITY_TIMING.CHARGE_EXECUTE);
+  const start = enemy.activeAbility.startPos;
+  const end = enemy.activeAbility.targetPos;
+
+  enemy.pos.x = start.x + (end.x - start.x) * progress;
+  enemy.pos.y = start.y + (end.y - start.y) * progress;
+  clampToArena(enemy);
+
+  // Damage on completion
+  if (progress >= 0.95) {
+    [...state.entities, state.player].forEach(e => {
+      if (e.alive && e.faction === 'player' && dist(e.pos, enemy.pos) < 36) {
+        processDamage({
+          attackerId: enemy.id,
+          targetId: e.id,
+          baseDamage: 10,
+          damageType: 'physical',
+          tags: ['Physical', 'AOE'],
+          isProjectile: false,
+        }, state);
+      }
+    });
+  }
+}
+
+function executeLunge(enemy: EnemyEntity, state: RunState) {
+  if (!enemy.activeAbility?.targetPos || !enemy.activeAbility.startPos) return;
+
+  const progress = 1 - (enemy.activeAbility.timer / ABILITY_TIMING.LUNGE_EXECUTE);
+  const start = enemy.activeAbility.startPos;
+  const end = enemy.activeAbility.targetPos;
+
+  enemy.pos.x = start.x + (end.x - start.x) * progress;
+  enemy.pos.y = start.y + (end.y - start.y) * progress;
+  clampToArena(enemy);
+
+  if (progress >= 0.9) {
+    const target = findNearestPlayerAlly(state, enemy.pos);
+    if (target && dist(enemy.pos, target.pos) < 30) {
       processDamage({
         attackerId: enemy.id,
         targetId: target.id,
-        baseDamage: Math.round(enemy.def.damage * (1 + packBonus)),
+        baseDamage: Math.round(enemy.def.damage * 1.3),
         damageType: 'physical',
         tags: ['Physical', 'Melee'],
         isProjectile: false,
       }, state);
-    } else {
-      // Circle strafe while waiting for attack cooldown
-      if (d < enemy.def.attackRange * 0.8) {
-        const strafeDir = getFlankDir(enemy, target, flankSide);
-        enemy.pos.x += strafeDir.x * enemy.speed * 0.4 * dt;
-        enemy.pos.y += strafeDir.y * enemy.speed * 0.4 * dt;
-      }
-      enemy.animState = 'idle';
     }
   }
-
-  clampToArena(enemy);
 }
 
-// =====================================================
-// RANGED SPITTER - Mushroom Spitter
-// Behaviors: Burst fire, leading shots, retreat dash,
-// spore mine placement, sniper stance
-// =====================================================
-function rangedSpitterAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: number) {
-  const d = dist(enemy.pos, target.pos);
-  const preferredRange = enemy.def.attackRange * 0.7;
+function executeBurstFire(enemy: EnemyEntity, state: RunState) {
+  const target = findNearestPlayerAlly(state, enemy.pos);
+  if (!target) return;
 
-  // Retreat dash: if player gets too close, jump backwards
-  const retreatCd = enemy.abilityCooldowns.get('retreat_dash') || 0;
-  if (retreatCd <= 0 && d < preferredRange * 0.35) {
-    enemy.abilityCooldowns.set('retreat_dash', 6);
-    const awayDir = dirTo(target.pos, enemy.pos);
-    enemy.pos.x += awayDir.x * 70;
-    enemy.pos.y += awayDir.y * 70;
+  const baseDir = dirTo(enemy.pos, target.pos);
+  const baseAngle = Math.atan2(baseDir.y, baseDir.x);
 
-    // Drop a spore mine at old position during retreat
+  for (let i = -1; i <= 1; i++) {
+    const angle = baseAngle + i * 0.15;
+    const proj: ProjectileEntity = {
+      id: genId(),
+      type: 'projectile',
+      pos: { x: enemy.pos.x, y: enemy.pos.y },
+      vel: { x: Math.cos(angle) * 190, y: Math.sin(angle) * 190 },
+      hp: 1, maxHp: 1,
+      radius: 4,
+      speed: 190,
+      faction: 'enemy',
+      tags: ['Projectile', 'Poison'],
+      alive: true,
+      invulnMs: 0, flashMs: 0, deathAnimMs: 0,
+      animState: 'idle',
+      rotation: angle,
+      ownerId: enemy.id,
+      damage: Math.round(enemy.def.damage * 0.6),
+      piercing: false,
+      lifetime: 2,
+      maxLifetime: 2,
+      hitEntities: new Set(),
+    };
+    state.entities.push(proj);
+  }
+}
+
+function executeRetreat(enemy: EnemyEntity, state: RunState) {
+  if (!enemy.activeAbility?.targetPos || !enemy.activeAbility.startPos) return;
+
+  const progress = 1 - (enemy.activeAbility.timer / ABILITY_TIMING.RETREAT_EXECUTE);
+  const start = enemy.activeAbility.startPos;
+  const end = enemy.activeAbility.targetPos;
+
+  enemy.pos.x = start.x + (end.x - start.x) * progress;
+  enemy.pos.y = start.y + (end.y - start.y) * progress;
+  clampToArena(enemy);
+
+  // Drop mine at start position on completion
+  if (progress >= 0.95) {
     const mine: HazardEntity = {
       id: genId(),
       type: 'hazard',
-      pos: { x: enemy.pos.x - awayDir.x * 70, y: enemy.pos.y - awayDir.y * 70 },
+      pos: { ...start },
       vel: { x: 0, y: 0 },
       hp: 1, maxHp: 1,
       radius: 28,
@@ -205,14 +321,154 @@ function rangedSpitterAI(enemy: EnemyEntity, target: Entity, state: RunState, dt
       maxDuration: 3,
     };
     state.entities.push(mine);
-    clampToArena(enemy);
+  }
+}
+
+function executeHazardSpawn(enemy: EnemyEntity, state: RunState) {
+  if (!enemy.activeAbility?.targetPos) return;
+
+  const hazard: HazardEntity = {
+    id: genId(),
+    type: 'hazard',
+    pos: { ...enemy.activeAbility.targetPos },
+    vel: { x: 0, y: 0 },
+    hp: 1, maxHp: 1,
+    radius: 40,
+    speed: 0,
+    faction: 'enemy',
+    tags: ['Poison', 'AOE', 'DOT'],
+    alive: true,
+    invulnMs: 0, flashMs: 0, deathAnimMs: 0,
+    animState: 'idle',
+    rotation: 0,
+    ownerId: enemy.id,
+    damage: 4,
+    tickRate: 0.5,
+    tickTimer: 0.5,
+    duration: 5,
+    maxDuration: 5,
+  };
+  state.entities.push(hazard);
+}
+
+function executeGroundSlam(enemy: EnemyEntity, state: RunState) {
+  const slamRadius = 48;
+  [...state.entities, state.player].forEach(e => {
+    if (e.alive && e.faction === 'player' && dist(e.pos, enemy.pos) < slamRadius) {
+      processDamage({
+        attackerId: enemy.id,
+        targetId: e.id,
+        baseDamage: 12,
+        damageType: 'physical',
+        tags: ['Physical', 'AOE'],
+        isProjectile: false,
+      }, state);
+    }
+  });
+}
+
+// --- Helper: count nearby allies for pack behavior ---
+function countNearbyAllies(state: RunState, enemy: EnemyEntity, radius: number): number {
+  let count = 0;
+  state.entities.forEach(e => {
+    if (e.type === 'enemy' && e.alive && e.id !== enemy.id && dist(e.pos, enemy.pos) < radius) {
+      count++;
+    }
+  });
+  return count;
+}
+
+// =====================================================
+// MELEE CHASER - Skeleton Chaser
+// =====================================================
+function meleeChaseAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: number) {
+  const d = dist(enemy.pos, target.pos);
+  const hpRatio = enemy.hp / enemy.maxHp;
+  const frenzied = hpRatio < 0.3;
+  const speedMult = frenzied ? 1.4 : 1.0;
+  const attackCdMult = frenzied ? 0.6 : 1.0;
+
+  // Lunge attack: charge forward when at medium range
+  const lungeCd = enemy.abilityCooldowns.get('lunge') || 0;
+  if (lungeCd <= 0 && d > 40 && d < 90) {
+    enemy.abilityCooldowns.set('lunge', 5);
+    const dir = dirTo(enemy.pos, target.pos);
+    const lungeDistance = Math.min(d - 15, 60);
+    const targetPos = {
+      x: enemy.pos.x + dir.x * lungeDistance,
+      y: enemy.pos.y + dir.y * lungeDistance,
+    };
+    startAbility(enemy, 'lunge', targetPos);
+    return;
+  }
+
+  // Pack flanking and movement
+  const nearbyAllies = countNearbyAllies(state, enemy, 120);
+  const shouldFlank = nearbyAllies >= 1 && d > enemy.def.attackRange && d < 120;
+  const idNum = parseInt(enemy.id.replace(/\D/g, '')) || 0;
+  const flankSide = idNum % 2 === 0 ? 1 : -1;
+
+  if (d > enemy.def.attackRange) {
+    let dir: Vec2;
+    if (shouldFlank) {
+      const angle = Math.atan2(target.pos.y - enemy.pos.y, target.pos.x - enemy.pos.x) + flankSide * (Math.PI * 0.3);
+      dir = { x: Math.cos(angle), y: Math.sin(angle) };
+    } else {
+      dir = dirTo(enemy.pos, target.pos);
+    }
+    enemy.pos.x += dir.x * enemy.speed * speedMult * dt;
+    enemy.pos.y += dir.y * enemy.speed * speedMult * dt;
+    enemy.rotation = Math.atan2(dir.y, dir.x);
+    enemy.animState = 'move';
+  } else {
+    const cd = enemy.abilityCooldowns.get('basic_attack') || 0;
+    if (cd <= 0) {
+      enemy.abilityCooldowns.set('basic_attack', enemy.def.attackCooldown * attackCdMult);
+      enemy.animState = 'attack';
+      const packBonus = Math.min(nearbyAllies * 0.15, 0.45);
+      processDamage({
+        attackerId: enemy.id,
+        targetId: target.id,
+        baseDamage: Math.round(enemy.def.damage * (1 + packBonus)),
+        damageType: 'physical',
+        tags: ['Physical', 'Melee'],
+        isProjectile: false,
+      }, state);
+    } else if (d < enemy.def.attackRange * 0.8) {
+      const strafeAngle = Math.atan2(target.pos.y - enemy.pos.y, target.pos.x - enemy.pos.x) + flankSide * (Math.PI * 0.3);
+      const strafeDir = { x: Math.cos(strafeAngle), y: Math.sin(strafeAngle) };
+      enemy.pos.x += strafeDir.x * enemy.speed * 0.4 * dt;
+      enemy.pos.y += strafeDir.y * enemy.speed * 0.4 * dt;
+    }
+  }
+
+  clampToArena(enemy);
+}
+
+// =====================================================
+// RANGED SPITTER - Mushroom Spitter
+// =====================================================
+function rangedSpitterAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: number) {
+  const d = dist(enemy.pos, target.pos);
+  const preferredRange = enemy.def.attackRange * 0.7;
+
+  // Retreat dash: if player gets too close, jump backwards
+  const retreatCd = enemy.abilityCooldowns.get('retreat_dash') || 0;
+  if (retreatCd <= 0 && d < preferredRange * 0.35) {
+    enemy.abilityCooldowns.set('retreat_dash', 6);
+    const awayDir = dirTo(target.pos, enemy.pos);
+    const retreatPos = {
+      x: enemy.pos.x + awayDir.x * 70,
+      y: enemy.pos.y + awayDir.y * 70,
+    };
+    startAbility(enemy, 'retreat', retreatPos);
     return;
   }
 
   // Maintain distance
   if (d < preferredRange * 0.5) {
     const dir = dirTo(target.pos, enemy.pos);
-    enemy.pos.x += dir.x * enemy.speed * 1.3 * dt; // Faster retreat
+    enemy.pos.x += dir.x * enemy.speed * 1.3 * dt;
     enemy.pos.y += dir.y * enemy.speed * 1.3 * dt;
     enemy.animState = 'move';
   } else if (d > enemy.def.attackRange) {
@@ -222,48 +478,20 @@ function rangedSpitterAI(enemy: EnemyEntity, target: Entity, state: RunState, dt
     enemy.animState = 'move';
   }
 
-  // Burst fire: fire 3 projectiles in quick succession every 6 seconds
+  // Burst fire: fire 3 projectiles
   const burstCd = enemy.abilityCooldowns.get('burst_fire') || 0;
-  const cd = enemy.abilityCooldowns.get('basic_attack') || 0;
-
   if (burstCd <= 0 && d <= enemy.def.attackRange && d > preferredRange * 0.3) {
     enemy.abilityCooldowns.set('burst_fire', 7);
-    enemy.animState = 'attack';
+    startAbility(enemy, 'burst_fire');
+    return;
+  }
 
-    // Fire a spread of 3 projectiles
-    const baseDir = dirTo(enemy.pos, target.pos);
-    const baseAngle = Math.atan2(baseDir.y, baseDir.x);
-    for (let i = -1; i <= 1; i++) {
-      const angle = baseAngle + i * 0.15;
-      const proj: ProjectileEntity = {
-        id: genId(),
-        type: 'projectile',
-        pos: { x: enemy.pos.x, y: enemy.pos.y },
-        vel: { x: Math.cos(angle) * 190, y: Math.sin(angle) * 190 },
-        hp: 1, maxHp: 1,
-        radius: 4,
-        speed: 190,
-        faction: 'enemy',
-        tags: ['Projectile', 'Poison'],
-        alive: true,
-        invulnMs: 0, flashMs: 0, deathAnimMs: 0,
-        animState: 'idle',
-        rotation: angle,
-        ownerId: enemy.id,
-        damage: Math.round(enemy.def.damage * 0.6),
-        piercing: false,
-        lifetime: 2,
-        maxLifetime: 2,
-        hitEntities: new Set(),
-      };
-      state.entities.push(proj);
-    }
-  } else if (cd <= 0 && d <= enemy.def.attackRange) {
-    // Normal shot: lead the target based on velocity
+  // Normal shot with leading
+  const cd = enemy.abilityCooldowns.get('basic_attack') || 0;
+  if (cd <= 0 && d <= enemy.def.attackRange) {
     enemy.abilityCooldowns.set('basic_attack', enemy.def.attackCooldown);
     enemy.animState = 'attack';
 
-    // Lead the shot: predict target position
     const projSpeed = 200;
     const travelTime = d / projSpeed;
     const predictedPos = {
@@ -301,65 +529,40 @@ function rangedSpitterAI(enemy: EnemyEntity, target: Entity, state: RunState, dt
 
 // =====================================================
 // TANK - Stone Golem
-// Behaviors: Shield stance (damage reduction), charge attack,
-// ground slam with telegraph, stomp shockwave, enrage at low HP
 // =====================================================
 function tankAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: number) {
   const d = dist(enemy.pos, target.pos);
   const hpRatio = enemy.hp / enemy.maxHp;
-
-  // Enrage below 25% HP: faster attacks, more damage
   const enraged = hpRatio < 0.25;
   const damageMult = enraged ? 1.5 : 1.0;
 
-  // Shield stance: when taking ranged fire, periodically raise guard
-  const shieldCd = enemy.abilityCooldowns.get('shield_stance') || 0;
-  if (shieldCd <= 0 && d > 60) {
-    // Activate shield stance for 2 seconds (tracked via behaviorState)
-    enemy.abilityCooldowns.set('shield_stance', 8);
-    enemy.behaviorState = 'shielding';
-    enemy.abilityCooldowns.set('shield_end', 2);
-  }
-
-  // End shield stance
-  const shieldEnd = enemy.abilityCooldowns.get('shield_end') || 0;
-  if (enemy.behaviorState === 'shielding' && shieldEnd <= 0) {
-    enemy.behaviorState = 'chase';
-  }
-
-  // While shielding, move slower but take reduced damage (tracked in processDamage checks)
-  const moveMult = enemy.behaviorState === 'shielding' ? 0.3 : 1.0;
-
-  // Charge attack: rush at distant target
+  // Charge attack
   const chargeCd = enemy.abilityCooldowns.get('charge') || 0;
-  if (chargeCd <= 0 && d > 80 && d < 200 && enemy.behaviorState !== 'shielding') {
+  if (chargeCd <= 0 && d > 80 && d < 200) {
     enemy.abilityCooldowns.set('charge', 8);
     const dir = dirTo(enemy.pos, target.pos);
     const chargeDist = Math.min(d - 20, 100);
-    enemy.pos.x += dir.x * chargeDist;
-    enemy.pos.y += dir.y * chargeDist;
-    enemy.animState = 'attack';
-    // Charge impact damage to everything near landing
-    [...state.entities, state.player].forEach(e => {
-      if (e.alive && e.faction === 'player' && dist(e.pos, enemy.pos) < 36) {
-        processDamage({
-          attackerId: enemy.id,
-          targetId: e.id,
-          baseDamage: Math.round(10 * damageMult),
-          damageType: 'physical',
-          tags: ['Physical', 'AOE'],
-          isProjectile: false,
-        }, state);
-      }
-    });
-    clampToArena(enemy);
+    const chargeTarget = {
+      x: enemy.pos.x + dir.x * chargeDist,
+      y: enemy.pos.y + dir.y * chargeDist,
+    };
+    startAbility(enemy, 'charge', chargeTarget);
     return;
   }
 
+  // Ground slam
+  const slamCd = enemy.abilityCooldowns.get('ground_slam') || 0;
+  if (slamCd <= 0 && d < 50) {
+    enemy.abilityCooldowns.set('ground_slam', enraged ? 4 : 6);
+    startAbility(enemy, 'slam');
+    return;
+  }
+
+  // Movement
   if (d > enemy.def.attackRange) {
     const dir = dirTo(enemy.pos, target.pos);
-    enemy.pos.x += dir.x * enemy.speed * moveMult * dt;
-    enemy.pos.y += dir.y * enemy.speed * moveMult * dt;
+    enemy.pos.x += dir.x * enemy.speed * dt;
+    enemy.pos.y += dir.y * enemy.speed * dt;
     enemy.animState = 'move';
   } else {
     const cd = enemy.abilityCooldowns.get('basic_attack') || 0;
@@ -376,61 +579,6 @@ function tankAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: number)
         isProjectile: false,
       }, state);
     }
-
-    // Ground slam ability - larger AOE, targets clusters of player entities
-    const slamCd = enemy.abilityCooldowns.get('ground_slam') || 0;
-    const slamRadius = enraged ? 64 : 48;
-    if (slamCd <= 0 && d < 50) {
-      enemy.abilityCooldowns.set('ground_slam', enraged ? 4 : 6);
-      // AOE damage around self
-      [...state.entities, state.player].forEach(e => {
-        if (e.alive && e.faction === 'player' && dist(e.pos, enemy.pos) < slamRadius) {
-          processDamage({
-            attackerId: enemy.id,
-            targetId: e.id,
-            baseDamage: Math.round(12 * damageMult),
-            damageType: 'physical',
-            tags: ['Physical', 'AOE'],
-            isProjectile: false,
-          }, state);
-        }
-      });
-    }
-
-    // Stomp shockwave: send a line of hazards toward the target
-    const stompCd = enemy.abilityCooldowns.get('stomp_wave') || 0;
-    if (stompCd <= 0 && d < 80 && d > 30) {
-      enemy.abilityCooldowns.set('stomp_wave', 10);
-      const dir = dirTo(enemy.pos, target.pos);
-      // Create 3 hazard zones in a line toward target
-      for (let i = 1; i <= 3; i++) {
-        const hazard: HazardEntity = {
-          id: genId(),
-          type: 'hazard',
-          pos: {
-            x: enemy.pos.x + dir.x * (30 * i),
-            y: enemy.pos.y + dir.y * (30 * i),
-          },
-          vel: { x: 0, y: 0 },
-          hp: 1, maxHp: 1,
-          radius: 24,
-          speed: 0,
-          faction: 'enemy',
-          tags: ['Physical', 'AOE'],
-          alive: true,
-          invulnMs: 0, flashMs: 0, deathAnimMs: 0,
-          animState: 'idle',
-          rotation: 0,
-          ownerId: enemy.id,
-          damage: 8,
-          tickRate: 0.3,
-          tickTimer: 0.3 + i * 0.2, // Staggered activation
-          duration: 1.5,
-          maxDuration: 1.5,
-        };
-        state.entities.push(hazard);
-      }
-    }
   }
 
   clampToArena(enemy);
@@ -438,83 +586,36 @@ function tankAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: number)
 
 // =====================================================
 // BLINKER - Shadow Imp
-// Behaviors: Hit-and-run teleport, backstab bonus, afterimage decoy,
-// shadow dodge, multi-blink combo
 // =====================================================
 function blinkerAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: number) {
   const d = dist(enemy.pos, target.pos);
-
-  // Track attack count for combo behavior
   const attacksSinceBlink = enemy.abilityCooldowns.get('attacks_since_blink') || 0;
 
-  // Shadow blink: teleport behind target for backstab
+  // Shadow blink: teleport behind target
   const blinkCd = enemy.abilityCooldowns.get('shadow_blink') || 0;
   if (blinkCd <= 0 && (d > 60 || attacksSinceBlink >= 2)) {
     enemy.abilityCooldowns.set('shadow_blink', 3.5);
     enemy.abilityCooldowns.set('attacks_since_blink', 0);
 
-    // Teleport behind target (opposite of their facing direction)
     const behindAngle = target.rotation + Math.PI;
     const offset = 25 + Math.random() * 10;
-    enemy.pos.x = target.pos.x + Math.cos(behindAngle) * offset;
-    enemy.pos.y = target.pos.y + Math.sin(behindAngle) * offset;
-
-    // Immediate backstab attack on arrival
-    enemy.animState = 'attack';
-    processDamage({
-      attackerId: enemy.id,
-      targetId: target.id,
-      baseDamage: Math.round(enemy.def.damage * 1.5), // Backstab bonus
-      damageType: 'physical',
-      tags: ['Spirit', 'Melee'],
-      isProjectile: false,
-    }, state);
-    clampToArena(enemy);
+    const blinkTarget = {
+      x: target.pos.x + Math.cos(behindAngle) * offset,
+      y: target.pos.y + Math.sin(behindAngle) * offset,
+    };
+    startAbility(enemy, 'blink', blinkTarget);
     return;
   }
 
-  // Shadow dodge: briefly become harder to hit when at low HP
-  const dodgeCd = enemy.abilityCooldowns.get('shadow_dodge') || 0;
-  if (dodgeCd <= 0 && enemy.hp < enemy.maxHp * 0.4 && d < 50) {
-    enemy.abilityCooldowns.set('shadow_dodge', 8);
-    // Short invulnerability blink
-    enemy.invulnMs = 400;
-    // Reposition to a random spot near target
-    const angle = Math.random() * Math.PI * 2;
-    enemy.pos.x = target.pos.x + Math.cos(angle) * 50;
-    enemy.pos.y = target.pos.y + Math.sin(angle) * 50;
-    clampToArena(enemy);
-    return;
-  }
-
-  // Multi-blink: at low HP, chain teleport around target
-  const multiBlink = enemy.abilityCooldowns.get('multi_blink') || 0;
-  if (multiBlink <= 0 && enemy.hp < enemy.maxHp * 0.5 && d < 100) {
-    enemy.abilityCooldowns.set('multi_blink', 12);
-    // Quick 2-hit combo from different angles
-    for (let i = 0; i < 2; i++) {
-      const angle = (Math.PI * 2 / 3) * i + Math.random() * 0.5;
-      const hitPos = {
-        x: target.pos.x + Math.cos(angle) * 28,
-        y: target.pos.y + Math.sin(angle) * 28,
-      };
-      // Only process damage (visual will show as rapid movement)
-      processDamage({
-        attackerId: enemy.id,
-        targetId: target.id,
-        baseDamage: Math.round(enemy.def.damage * 0.7),
-        damageType: 'physical',
-        tags: ['Spirit', 'Melee'],
-        isProjectile: false,
-      }, state);
-      enemy.pos = hitPos;
-    }
-    enemy.animState = 'attack';
-    clampToArena(enemy);
-    return;
-  }
-
-  if (d <= enemy.def.attackRange) {
+  // Normal movement with zigzag
+  if (d > enemy.def.attackRange) {
+    const dir = dirTo(enemy.pos, target.pos);
+    const zigzag = Math.sin(Date.now() * 0.005 + parseInt(enemy.id.replace(/\D/g, '')) * 1.7) * 0.6;
+    const moveAngle = Math.atan2(dir.y, dir.x) + zigzag;
+    enemy.pos.x += Math.cos(moveAngle) * enemy.speed * dt;
+    enemy.pos.y += Math.sin(moveAngle) * enemy.speed * dt;
+    enemy.animState = 'move';
+  } else {
     const cd = enemy.abilityCooldowns.get('basic_attack') || 0;
     if (cd <= 0) {
       enemy.abilityCooldowns.set('basic_attack', enemy.def.attackCooldown);
@@ -529,19 +630,10 @@ function blinkerAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: numb
         isProjectile: false,
       }, state);
 
-      // After attacking, dash away slightly to avoid standing still
       const awayDir = dirTo(target.pos, enemy.pos);
       enemy.pos.x += awayDir.x * 15;
       enemy.pos.y += awayDir.y * 15;
     }
-  } else {
-    // Move toward target with erratic zigzag pattern
-    const dir = dirTo(enemy.pos, target.pos);
-    const zigzag = Math.sin(Date.now() * 0.005 + parseInt(enemy.id.replace(/\D/g, '')) * 1.7) * 0.6;
-    const moveAngle = Math.atan2(dir.y, dir.x) + zigzag;
-    enemy.pos.x += Math.cos(moveAngle) * enemy.speed * dt;
-    enemy.pos.y += Math.sin(moveAngle) * enemy.speed * dt;
-    enemy.animState = 'move';
   }
 
   enemy.rotation = Math.atan2(target.pos.y - enemy.pos.y, target.pos.x - enemy.pos.x);
@@ -550,107 +642,18 @@ function blinkerAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: numb
 
 // =====================================================
 // HAZARD GENERATOR - Toxic Shroom
-// Behaviors: Chain hazards, defensive cloud, corridor denial,
-// spore burst on damage, fungal link to other hazard generators
 // =====================================================
 function hazardGeneratorAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: number) {
   const d = dist(enemy.pos, target.pos);
-
-  // Count existing hazards from this enemy
   const ownHazardCount = state.entities.filter(
     e => e.type === 'hazard' && e.alive && (e as HazardEntity).ownerId === enemy.id
   ).length;
 
-  // Defensive cloud: if player gets close, drop a hazard at feet and flee
-  const defensiveCd = enemy.abilityCooldowns.get('defensive_cloud') || 0;
-  if (defensiveCd <= 0 && d < 50) {
-    enemy.abilityCooldowns.set('defensive_cloud', 4);
-    const defenseCloud: HazardEntity = {
-      id: genId(),
-      type: 'hazard',
-      pos: { x: enemy.pos.x, y: enemy.pos.y },
-      vel: { x: 0, y: 0 },
-      hp: 1, maxHp: 1,
-      radius: 36,
-      speed: 0,
-      faction: 'enemy',
-      tags: ['Poison', 'AOE', 'DOT'],
-      alive: true,
-      invulnMs: 0, flashMs: 0, deathAnimMs: 0,
-      animState: 'idle',
-      rotation: 0,
-      ownerId: enemy.id,
-      damage: 6,
-      tickRate: 0.3,
-      tickTimer: 0,
-      duration: 3,
-      maxDuration: 3,
-    };
-    state.entities.push(defenseCloud);
-  }
-
-  // Maintain distance - flee faster when close
-  if (d < 80) {
-    const dir = dirTo(target.pos, enemy.pos);
-    const fleeSpeed = d < 40 ? enemy.speed * 1.5 : enemy.speed;
-    enemy.pos.x += dir.x * fleeSpeed * dt;
-    enemy.pos.y += dir.y * fleeSpeed * dt;
-    enemy.animState = 'move';
-  } else if (d > 160) {
-    // Don't stray too far; move closer to keep in hazard range
-    const dir = dirTo(enemy.pos, target.pos);
-    enemy.pos.x += dir.x * enemy.speed * 0.5 * dt;
-    enemy.pos.y += dir.y * enemy.speed * 0.5 * dt;
-    enemy.animState = 'move';
-  }
-
-  // Corridor denial: place hazards to cut off escape routes
-  const corridorCd = enemy.abilityCooldowns.get('corridor_denial') || 0;
-  if (corridorCd <= 0 && ownHazardCount < 4) {
-    enemy.abilityCooldowns.set('corridor_denial', 8);
-    // Place 2 hazards flanking the player's movement direction
-    const moveAngle = Math.atan2(target.vel.y, target.vel.x);
-    const isMoving = Math.abs(target.vel.x) > 10 || Math.abs(target.vel.y) > 10;
-
-    if (isMoving) {
-      for (let i = -1; i <= 1; i += 2) {
-        const perpAngle = moveAngle + i * (Math.PI / 2);
-        const hazard: HazardEntity = {
-          id: genId(),
-          type: 'hazard',
-          pos: {
-            x: target.pos.x + Math.cos(moveAngle) * 60 + Math.cos(perpAngle) * 30,
-            y: target.pos.y + Math.sin(moveAngle) * 60 + Math.sin(perpAngle) * 30,
-          },
-          vel: { x: 0, y: 0 },
-          hp: 1, maxHp: 1,
-          radius: 36,
-          speed: 0,
-          faction: 'enemy',
-          tags: ['Poison', 'AOE', 'DOT'],
-          alive: true,
-          invulnMs: 0, flashMs: 0, deathAnimMs: 0,
-          animState: 'idle',
-          rotation: 0,
-          ownerId: enemy.id,
-          damage: 3,
-          tickRate: 0.5,
-          tickTimer: 0.5,
-          duration: 5,
-          maxDuration: 5,
-        };
-        state.entities.push(hazard);
-      }
-    }
-  }
-
-  // Main hazard spawn - targeted placement
+  // Main hazard spawn
   const cd = enemy.abilityCooldowns.get('spawn_gas_cloud') || 0;
   if (cd <= 0 && ownHazardCount < 5) {
     enemy.abilityCooldowns.set('spawn_gas_cloud', 4.5);
-    enemy.animState = 'attack';
 
-    // Place hazard where the target is heading, or at their position
     let hazardX = target.pos.x;
     let hazardY = target.pos.y;
     const isMoving = Math.abs(target.vel.x) > 10 || Math.abs(target.vel.y) > 10;
@@ -661,44 +664,22 @@ function hazardGeneratorAI(enemy: EnemyEntity, target: Entity, state: RunState, 
     hazardX += (Math.random() - 0.5) * 30;
     hazardY += (Math.random() - 0.5) * 30;
 
-    const hazard: HazardEntity = {
-      id: genId(),
-      type: 'hazard',
-      pos: { x: hazardX, y: hazardY },
-      vel: { x: 0, y: 0 },
-      hp: 1, maxHp: 1,
-      radius: 40,
-      speed: 0,
-      faction: 'enemy',
-      tags: ['Poison', 'AOE', 'DOT'],
-      alive: true,
-      invulnMs: 0, flashMs: 0, deathAnimMs: 0,
-      animState: 'idle',
-      rotation: 0,
-      ownerId: enemy.id,
-      damage: 4,
-      tickRate: 0.5,
-      tickTimer: 0.5,
-      duration: 5,
-      maxDuration: 5,
-    };
-    state.entities.push(hazard);
+    startAbility(enemy, 'hazard', { x: hazardX, y: hazardY });
+    return;
   }
 
-  // Spore burst: when taking damage, nearby hazards deal an extra tick
-  // (tracked via flash check - enemy flashes when hit)
-  if (enemy.flashMs > 0 && enemy.flashMs < 100) {
-    const sporeBurstCd = enemy.abilityCooldowns.get('spore_burst') || 0;
-    if (sporeBurstCd <= 0) {
-      enemy.abilityCooldowns.set('spore_burst', 3);
-      state.entities.forEach(e => {
-        if (e.type === 'hazard' && e.alive && (e as HazardEntity).ownerId === enemy.id) {
-          const hazard = e as HazardEntity;
-          // Boost existing hazards briefly
-          hazard.duration = Math.min(hazard.duration + 1.5, hazard.maxDuration + 2);
-        }
-      });
-    }
+  // Maintain distance
+  if (d < 80) {
+    const dir = dirTo(target.pos, enemy.pos);
+    const fleeSpeed = d < 40 ? enemy.speed * 1.5 : enemy.speed;
+    enemy.pos.x += dir.x * fleeSpeed * dt;
+    enemy.pos.y += dir.y * fleeSpeed * dt;
+    enemy.animState = 'move';
+  } else if (d > 160) {
+    const dir = dirTo(enemy.pos, target.pos);
+    enemy.pos.x += dir.x * enemy.speed * 0.5 * dt;
+    enemy.pos.y += dir.y * enemy.speed * 0.5 * dt;
+    enemy.animState = 'move';
   }
 
   clampToArena(enemy);
@@ -709,16 +690,9 @@ function applyEliteModifier(enemy: EnemyEntity, state: RunState, dt: number) {
 
   switch (enemy.eliteModifier.id) {
     case 'elite_frenzied':
-      // Speed up below 40% HP
       if (enemy.hp < enemy.maxHp * 0.4) {
         enemy.speed = enemy.def.speed * enemy.eliteModifier.speedMult * 1.5;
       }
-      break;
-    case 'elite_shielded':
-      // Periodic shield (simplified)
-      break;
-    case 'elite_toxic':
-      // Attacks apply poison via processDamage triggers
       break;
   }
 }
@@ -730,7 +704,6 @@ function updateBossPhase(enemy: EnemyEntity, state: RunState, dt: number, target
     return;
   }
 
-  // Determine phase
   const hpRatio = enemy.hp / enemy.maxHp;
   let currentPhase = 0;
   for (let i = boss.phases.length - 1; i >= 0; i--) {
@@ -743,7 +716,6 @@ function updateBossPhase(enemy: EnemyEntity, state: RunState, dt: number, target
   const phase = boss.phases[currentPhase];
   const d = dist(enemy.pos, target.pos);
 
-  // Move toward target slowly
   if (d > 60) {
     const dir = dirTo(enemy.pos, target.pos);
     enemy.pos.x += dir.x * enemy.speed * dt;
@@ -751,17 +723,15 @@ function updateBossPhase(enemy: EnemyEntity, state: RunState, dt: number, target
     enemy.animState = 'move';
   }
 
-  // Use phase abilities
   for (const ability of phase.abilities) {
     const cd = enemy.abilityCooldowns.get(ability.id) || 0;
     if (cd <= 0) {
       enemy.abilityCooldowns.set(ability.id, ability.cooldown);
       executeBossAbility(enemy, ability, target, state);
-      break; // One ability per frame
+      break;
     }
   }
 
-  // Basic attack
   if (d <= enemy.def.attackRange) {
     const cd = enemy.abilityCooldowns.get('basic_attack') || 0;
     if (cd <= 0) {
@@ -789,7 +759,6 @@ function executeBossAbility(
   const effect = ability.effect || '';
 
   if (effect.includes('projectile') || effect.includes('barrage')) {
-    // Multi projectile
     const count = parseInt(effect.split('_').pop() || '3');
     const baseDir = dirTo(enemy.pos, target.pos);
     const spread = 0.3;
@@ -819,7 +788,6 @@ function executeBossAbility(
       state.entities.push(proj);
     }
   } else if (effect.includes('cone') || effect.includes('sweep')) {
-    // AOE around boss
     const radius = ability.aoeRadius || 60;
     [...state.entities, state.player].forEach(e => {
       if (e.alive && e.faction === 'player' && dist(e.pos, enemy.pos) < radius) {
@@ -834,7 +802,6 @@ function executeBossAbility(
       }
     });
   } else if (effect.includes('rain') || effect.includes('zone')) {
-    // Multiple hazard zones
     const count = parseInt(effect.split('_')[0]?.replace('rain', '') || '3') || 3;
     for (let i = 0; i < Math.min(count, HARD_CAPS.maxSpawnedFromEvent); i++) {
       const angle = Math.random() * Math.PI * 2;
@@ -866,7 +833,6 @@ function executeBossAbility(
       state.entities.push(hazard);
     }
   } else if (effect.includes('summon')) {
-    // Boss summons adds
     const count = parseInt(effect.split('_')[1] || '2');
     for (let i = 0; i < Math.min(count, HARD_CAPS.maxSpawnedFromEvent); i++) {
       const angle = Math.random() * Math.PI * 2;
@@ -909,7 +875,6 @@ function executeBossAbility(
       state.entities.push(add);
     }
   } else if (effect.includes('ring') || effect.includes('nova')) {
-    // Expanding ring - create large hazard
     const hazard: HazardEntity = {
       id: genId(),
       type: 'hazard',
@@ -972,7 +937,6 @@ export function spawnEnemiesForNode(
 
     const enemy = createEnemyFromDef(def, pos, floor);
 
-    // Apply elite modifier
     if (nodeType === 'elite') {
       const mod = rng.pick(allEliteMods);
       enemy.eliteModifier = mod;

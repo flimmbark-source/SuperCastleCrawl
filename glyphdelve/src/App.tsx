@@ -141,8 +141,8 @@ const App: React.FC = () => {
         />
       )}
 
-      {phase === 'levelup' && (
-        <LevelUpModal offers={levelUpOffers} onChoose={(id) => gameRef.current?.chooseLevelUp(id)} tooltipMode={settings.tooltipMode} />
+      {phase === 'levelup' && state && (
+        <LevelUpModal offers={levelUpOffers} playerLevel={state.player.level} onChoose={(id) => gameRef.current?.chooseLevelUp(id)} tooltipMode={settings.tooltipMode} />
       )}
 
       {phase === 'shrine' && state && (
