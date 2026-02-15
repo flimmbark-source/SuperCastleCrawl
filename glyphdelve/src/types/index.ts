@@ -331,7 +331,9 @@ export interface FloorMap {
 export interface EncounterLootEntry {
   id: string;
   name: string;
+  icon: string;
   rarity: Rarity;
+  slot: string;
   description: string;
   effectSummary: string;
 }

@@ -7,6 +7,7 @@ import type { AccessibilitySettings, RunState, LevelUpOffer } from './types';
 import { HUD } from './ui/components/HUD';
 import { MapView } from './ui/components/MapView';
 import { LevelUpModal } from './ui/modals/LevelUpModal';
+import { LootScreen } from './ui/modals/LootScreen';
 import { ShrineModal } from './ui/modals/ShrineModal';
 import { SettingsPanel } from './ui/panels/SettingsPanel';
 import { SidePanel } from './ui/panels/SidePanel';
@@ -175,24 +176,7 @@ const App: React.FC = () => {
 
 
       {phase === 'loot' && state && (
-        <div style={gameStyles.eventOverlay}>
-          <div style={{ ...gameStyles.eventCard, maxWidth: 520 }}>
-            <h2 style={gameStyles.eventTitle}>Loot Secured</h2>
-            <p style={gameStyles.eventDesc}>You found {state.encounterLoot.length} item{state.encounterLoot.length === 1 ? '' : 's'} this encounter.</p>
-            <div style={{ maxHeight: 240, overflowY: 'auto', textAlign: 'left', margin: '12px 0', border: '1px solid #333', borderRadius: 6, padding: 10 }}>
-              {state.encounterLoot.map((item, idx) => (
-                <div key={`${item.id}_${idx}`} style={{ marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                  <div style={{ color: '#ffd54f', fontFamily: 'monospace', fontSize: 12 }}>
-                    {item.name} [{item.rarity}]
-                  </div>
-                  <div style={{ color: '#aab6d1', fontFamily: 'monospace', fontSize: 10 }}>{item.description}</div>
-                  <div style={{ color: '#90caf9', fontFamily: 'monospace', fontSize: 10 }}>{item.effectSummary}</div>
-                </div>
-              ))}
-            </div>
-            <button style={gameStyles.eventBtn} onClick={() => gameRef.current?.confirmEncounterLoot()}>Continue Delve</button>
-          </div>
-        </div>
+        <LootScreen items={state.encounterLoot} onContinue={() => gameRef.current?.confirmEncounterLoot()} />
       )}
 
       {phase === 'build_summary' && state && (

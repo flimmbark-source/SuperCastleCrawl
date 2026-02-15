@@ -882,12 +882,14 @@ export class Game {
   }
 
 
-  private collectEncounterLoot(items: Array<{ id: string; name: string; rarity: any; description: string; triggerSentence: string }>) {
+  private collectEncounterLoot(items: Array<{ id: string; name: string; icon: string; rarity: any; slot: string; description: string; triggerSentence: string }>) {
     items.forEach(item => {
       const entry: EncounterLootEntry = {
         id: item.id,
         name: item.name,
+        icon: item.icon,
         rarity: item.rarity,
+        slot: item.slot,
         description: item.description,
         effectSummary: item.triggerSentence,
       };
