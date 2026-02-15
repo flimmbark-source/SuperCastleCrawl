@@ -258,6 +258,8 @@ export interface EnemyEntity extends Entity {
   behaviorState: string;
   poisonStacks: number;
   currentPhase?: number;
+  abilityPopupText?: string;
+  abilityPopupMs?: number;
 }
 
 export interface SummonEntity extends Entity {

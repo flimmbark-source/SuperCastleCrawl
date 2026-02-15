@@ -225,6 +225,14 @@ export class Renderer {
     ctx.arc(dirX, dirY, 3, 0, Math.PI * 2);
     ctx.fill();
 
+    if (player.animState === 'attack') {
+      ctx.strokeStyle = 'rgba(129, 212, 250, 0.7)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, player.radius + 8, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
     // Ally marker (not color-only) - small triangle above
     ctx.fillStyle = '#fff';
     ctx.beginPath();
@@ -301,6 +309,15 @@ export class Renderer {
     ctx.fillRect(x - barW / 2, barY, barW, barH);
     ctx.fillStyle = COLORS.healthBarEnemy;
     ctx.fillRect(x - barW / 2, barY, barW * hpRatio, barH);
+
+    if (enemy.abilityPopupMs && enemy.abilityPopupMs > 0 && enemy.abilityPopupText) {
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(x - 34, y - enemy.radius - 28, 68, 12);
+      ctx.fillStyle = '#f5f5f5';
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(enemy.abilityPopupText, x, y - enemy.radius - 19);
+    }
 
     // Poison stack indicator
     if (enemy.poisonStacks > 0) {
@@ -424,6 +441,13 @@ export class Renderer {
       ctx.lineTo(x + 3, y - r - 4);
       ctx.closePath();
       ctx.fill();
+    }
+
+    if (summon.animState === 'attack') {
+      ctx.strokeStyle = 'rgba(129, 199, 132, 0.7)';
+      ctx.beginPath();
+      ctx.arc(x, y, r + 5, 0, Math.PI * 2);
+      ctx.stroke();
     }
 
     // Duration bar
