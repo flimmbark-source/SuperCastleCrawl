@@ -281,6 +281,24 @@ export class Renderer {
 
     this.drawEnemyShape(enemy, x, y);
 
+    const meleeSwingMs = (enemy as any)._meleeSwingMs || 0;
+    if (meleeSwingMs > 0) {
+      const swingProgress = 1 - Math.min(1, meleeSwingMs / 240);
+      const sweep = 0.9;
+      const center = enemy.rotation || 0;
+      ctx.strokeStyle = 'rgba(255, 188, 104, 0.8)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x, y, enemy.radius + 10, center - sweep + swingProgress * 0.6, center + sweep);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255, 152, 0, 0.22)';
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.arc(x, y, enemy.radius + 8, center - 0.4, center + 0.4);
+      ctx.closePath();
+      ctx.fill();
+    }
+
     // Enemy marker (X shape for colorblind)
     if (this.config.colorblindMode) {
       ctx.strokeStyle = '#fff';

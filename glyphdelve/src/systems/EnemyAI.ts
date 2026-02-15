@@ -72,20 +72,26 @@ export function updateEnemyAI(state: RunState, dt: number) {
 
 function meleeChaseAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: number) {
   const d = dist(enemy.pos, target.pos);
+  const preferredRange = Math.max(18, enemy.def.attackRange * 0.9);
 
-  if (d > enemy.def.attackRange) {
-    // Move toward target
+  if (d > preferredRange) {
     const dir = dirTo(enemy.pos, target.pos);
     enemy.pos.x += dir.x * enemy.speed * dt;
     enemy.pos.y += dir.y * enemy.speed * dt;
     enemy.rotation = Math.atan2(dir.y, dir.x);
     enemy.animState = 'move';
+  } else if (d < Math.max(10, preferredRange * 0.55)) {
+    const retreat = dirTo(target.pos, enemy.pos);
+    enemy.pos.x += retreat.x * enemy.speed * 0.45 * dt;
+    enemy.pos.y += retreat.y * enemy.speed * 0.45 * dt;
+    enemy.animState = 'move';
   } else {
-    // Attack
     const cd = enemy.abilityCooldowns.get('basic_attack') || 0;
     if (cd <= 0) {
       enemy.abilityCooldowns.set('basic_attack', enemy.def.attackCooldown);
+      enemy.rotation = Math.atan2(target.pos.y - enemy.pos.y, target.pos.x - enemy.pos.x);
       enemy.animState = 'attack';
+      (enemy as any)._meleeSwingMs = 180;
       processDamage({
         attackerId: enemy.id,
         targetId: target.id,
@@ -99,7 +105,6 @@ function meleeChaseAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: n
     }
   }
 
-  // Clamp to arena
   clampToArena(enemy);
 }
 
@@ -157,16 +162,24 @@ function rangedSpitterAI(enemy: EnemyEntity, target: Entity, state: RunState, dt
 function tankAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: number) {
   const d = dist(enemy.pos, target.pos);
 
-  if (d > enemy.def.attackRange) {
+  const preferredRange = Math.max(20, enemy.def.attackRange * 0.9);
+  if (d > preferredRange) {
     const dir = dirTo(enemy.pos, target.pos);
     enemy.pos.x += dir.x * enemy.speed * dt;
     enemy.pos.y += dir.y * enemy.speed * dt;
+    enemy.animState = 'move';
+  } else if (d < preferredRange * 0.6) {
+    const retreat = dirTo(target.pos, enemy.pos);
+    enemy.pos.x += retreat.x * enemy.speed * 0.35 * dt;
+    enemy.pos.y += retreat.y * enemy.speed * 0.35 * dt;
     enemy.animState = 'move';
   } else {
     const cd = enemy.abilityCooldowns.get('basic_attack') || 0;
     if (cd <= 0) {
       enemy.abilityCooldowns.set('basic_attack', enemy.def.attackCooldown);
       enemy.animState = 'attack';
+      enemy.rotation = Math.atan2(target.pos.y - enemy.pos.y, target.pos.x - enemy.pos.x);
+      (enemy as any)._meleeSwingMs = 220;
       processDamage({
         attackerId: enemy.id,
         targetId: target.id,
@@ -219,7 +232,6 @@ function blinkerAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: numb
   if (blinkCd <= 0 && d > 80) {
     enemy.abilityCooldowns.set('shadow_blink', 4);
     showEnemyAbility(enemy, 'Shadow Blink');
-    // Teleport near target
     const angle = Math.random() * Math.PI * 2;
     enemy.pos.x = target.pos.x + Math.cos(angle) * 30;
     enemy.pos.y = target.pos.y + Math.sin(angle) * 30;
@@ -230,6 +242,8 @@ function blinkerAI(enemy: EnemyEntity, target: Entity, state: RunState, dt: numb
     if (cd <= 0) {
       enemy.abilityCooldowns.set('basic_attack', enemy.def.attackCooldown);
       enemy.animState = 'attack';
+      enemy.rotation = Math.atan2(target.pos.y - enemy.pos.y, target.pos.x - enemy.pos.x);
+      (enemy as any)._meleeSwingMs = 170;
       processDamage({
         attackerId: enemy.id,
         targetId: target.id,
@@ -357,6 +371,9 @@ function updateBossPhase(enemy: EnemyEntity, state: RunState, dt: number, target
     const cd = enemy.abilityCooldowns.get('basic_attack') || 0;
     if (cd <= 0) {
       enemy.abilityCooldowns.set('basic_attack', enemy.def.attackCooldown);
+      enemy.animState = 'attack';
+      enemy.rotation = Math.atan2(target.pos.y - enemy.pos.y, target.pos.x - enemy.pos.x);
+      (enemy as any)._meleeSwingMs = 240;
       processDamage({
         attackerId: enemy.id,
         targetId: target.id,
