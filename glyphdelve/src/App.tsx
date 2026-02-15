@@ -31,6 +31,14 @@ const App: React.FC = () => {
   const [seed, setSeed] = useState<number>(Date.now());
   const [lootTooltip, setLootTooltip] = useState<{ item: RunState['encounterLoot'][number]; x: number; y: number } | null>(null);
 
+  const setLootTooltipFromRow = useCallback((item: RunState['encounterLoot'][number], target: HTMLDivElement) => {
+    const rect = target.getBoundingClientRect();
+    const tooltipWidth = 170;
+    const x = Math.min(rect.right + 8, window.innerWidth - tooltipWidth - 8);
+    const y = Math.min(rect.top, window.innerHeight - 78);
+    setLootTooltip({ item, x, y: Math.max(8, y) });
+  }, []);
+
   useEffect(() => {
     let frames = 0;
     let lastTime = performance.now();
@@ -184,8 +192,7 @@ const App: React.FC = () => {
                 <div
                   key={`${item.id}_${idx}`}
                   style={{ marginBottom: 6, padding: '4px 6px', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 4, cursor: 'default' }}
-                  onMouseEnter={(e) => setLootTooltip({ item, x: e.clientX, y: e.clientY })}
-                  onMouseMove={(e) => setLootTooltip({ item, x: e.clientX, y: e.clientY })}
+                  onMouseEnter={(e) => setLootTooltipFromRow(item, e.currentTarget)}
                   onMouseLeave={() => setLootTooltip(null)}
                 >
                   <div style={{ color: '#ffd54f', fontFamily: 'monospace', fontSize: 11, display: 'flex', justifyContent: 'space-between' }}>
@@ -205,20 +212,20 @@ const App: React.FC = () => {
         <div
           style={{
             position: 'fixed',
-            left: lootTooltip.x + 10,
-            top: lootTooltip.y + 10,
-            maxWidth: 210,
+            left: lootTooltip.x,
+            top: lootTooltip.y,
+            maxWidth: 170,
             backgroundColor: 'rgba(10, 14, 25, 0.95)',
             border: '1px solid #38445f',
             borderRadius: 6,
-            padding: '6px 7px',
+            padding: '4px 5px',
             zIndex: 140,
             pointerEvents: 'none',
             boxShadow: '0 3px 10px rgba(0,0,0,0.35)',
           }}
         >
-          <div style={{ color: '#d7e3ff', fontFamily: 'monospace', fontSize: 9, lineHeight: 1.25 }}>{lootTooltip.item.description}</div>
-          <div style={{ color: '#8bc8ff', fontFamily: 'monospace', fontSize: 9, lineHeight: 1.25, marginTop: 4 }}>{lootTooltip.item.effectSummary}</div>
+          <div style={{ color: '#d7e3ff', fontFamily: 'monospace', fontSize: 8, lineHeight: 1.2 }}>{lootTooltip.item.description}</div>
+          <div style={{ color: '#8bc8ff', fontFamily: 'monospace', fontSize: 8, lineHeight: 1.2, marginTop: 3 }}>{lootTooltip.item.effectSummary}</div>
         </div>
       )}
 
