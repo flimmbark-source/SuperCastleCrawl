@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { RunState, PlayerEntity, CombatLogEntry, ActiveItem, InventoryItem } from '../../types';
+import { inventoryItemIcon } from '../itemPresentation';
 
 interface SidePanelProps {
   state: RunState;
@@ -45,7 +46,14 @@ export const SidePanel: React.FC<SidePanelProps> = ({ state, onUseInventoryItem 
 };
 
 const BuildTab: React.FC<{ player: PlayerEntity; state: RunState; onUseInventoryItem: (itemId: string) => void }> = ({ player, state, onUseInventoryItem }) => (
-  <div style={styles.buildTab}>
+  <InventorySection player={player} state={state} onUseInventoryItem={onUseInventoryItem} />
+);
+
+const InventorySection: React.FC<{ player: PlayerEntity; state: RunState; onUseInventoryItem: (itemId: string) => void }> = ({ player, state, onUseInventoryItem }) => {
+  const [tooltip, setTooltip] = useState<{ item: InventoryItem; x: number; y: number } | null>(null);
+
+  return (
+    <div style={styles.buildTab}>
     <div style={styles.buildSection}>
       <h4 style={styles.sectionTitle}>Skills ({player.skills.length}/{player.maxSkillSlots})</h4>
       {player.skills.map(s => (
@@ -77,32 +85,46 @@ const BuildTab: React.FC<{ player: PlayerEntity; state: RunState; onUseInventory
       ))}
       {player.items.length === 0 && <p style={styles.emptyText}>No equipped items yet</p>}
     </div>
-    <div style={styles.buildSection}>
-      <h4 style={styles.sectionTitle}>Inventory ({player.inventory.length})</h4>
-      <div style={styles.inventoryContainer}>
-        {player.inventory.length === 0 && <p style={styles.emptyText}>No consumables in pack</p>}
-        {player.inventory.map(item => (
-          <button
-            key={item.id}
-            style={styles.inventoryButton}
-            onClick={() => onUseInventoryItem(item.id)}
-            title={buildInventoryTooltip(item)}
-          >
-            <span style={styles.inventoryName}>{item.name}</span>
-            <span style={styles.inventoryDesc}>{item.description}</span>
-            <span style={styles.inventoryEffect}>{inventoryEffectSummary(item)} · x{item.charges}</span>
-          </button>
-        ))}
+      <div style={styles.buildSection}>
+        <h4 style={styles.sectionTitle}>Inventory ({player.inventory.length})</h4>
+        <div style={styles.inventoryContainer}>
+          {player.inventory.length === 0 && <p style={styles.emptyText}>No consumables in pack</p>}
+          {player.inventory.map(item => (
+            <button
+              key={item.id}
+              style={styles.inventoryButton}
+              onClick={() => onUseInventoryItem(item.id)}
+              onMouseEnter={(e) => setTooltip({ item, x: e.clientX, y: e.clientY })}
+              onMouseMove={(e) => setTooltip({ item, x: e.clientX, y: e.clientY })}
+              onMouseLeave={() => setTooltip(null)}
+            >
+              <div style={styles.inventoryHeader}>
+                <span style={styles.inventoryIcon}>{inventoryItemIcon(item)}</span>
+                <span style={styles.inventoryName}>{item.name}</span>
+              </div>
+              <span style={styles.inventoryDesc}>{item.description}</span>
+              <span style={styles.inventoryEffect}>{inventoryEffectSummary(item)} · x{item.charges}</span>
+            </button>
+          ))}
+        </div>
       </div>
-    </div>
     <div style={styles.buildSection}>
       <h4 style={styles.sectionTitle}>Active Summons</h4>
       <span style={styles.summonCount}>
         {state.entities.filter(e => e.type === 'summon' && e.alive).length} / 8
       </span>
     </div>
-  </div>
-);
+      {tooltip && (
+        <div style={{ ...styles.inventoryTooltip, left: tooltip.x + 10, top: tooltip.y + 10 }}>
+          <div style={styles.inventoryTooltipTitle}>{inventoryItemIcon(tooltip.item)} {tooltip.item.name}</div>
+          <div style={styles.inventoryTooltipBody}>{tooltip.item.description}</div>
+          <div style={styles.inventoryTooltipBody}>{inventoryEffectSummary(tooltip.item)}</div>
+          <div style={styles.inventoryTooltipCharges}>Charges: {tooltip.item.charges}</div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const TagsTab: React.FC<{ player: PlayerEntity }> = ({ player }) => {
   const tags = Array.from(player.buildTags.entries()).sort((a, b) => b[1] - a[1]);
@@ -160,10 +182,6 @@ function inventoryEffectSummary(item: InventoryItem): string {
   return 'Cleanse negative effects';
 }
 
-function buildInventoryTooltip(item: InventoryItem): string {
-  return `${item.name}\n${item.description}\nEffect: ${inventoryEffectSummary(item)}\nCharges: ${item.charges}`;
-}
-
 const LOG_COLORS: Record<string, string> = {
   damage: '#ef5350',
   heal: '#4caf50',
@@ -194,9 +212,25 @@ const styles: Record<string, React.CSSProperties> = {
   itemDescription: { fontSize: 9, color: '#97a2bd', fontFamily: 'monospace', lineHeight: 1.25 },
   inventoryContainer: { display: 'flex', flexDirection: 'column', gap: 6 },
   inventoryButton: { border: '1px solid #455a64', backgroundColor: 'rgba(38, 50, 56, 0.45)', borderRadius: 4, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 2, padding: '6px', cursor: 'pointer' },
+  inventoryHeader: { display: 'flex', alignItems: 'center', gap: 6 },
+  inventoryIcon: { fontSize: 14, lineHeight: 1 },
   inventoryName: { fontSize: 10, color: '#e0f2f1', fontFamily: 'monospace', fontWeight: 'bold' },
   inventoryDesc: { fontSize: 9, color: '#9fb0c9', fontFamily: 'monospace' },
   inventoryEffect: { fontSize: 9, color: '#c5e1a5', fontFamily: 'monospace' },
+  inventoryTooltip: {
+    position: 'fixed',
+    maxWidth: 220,
+    backgroundColor: 'rgba(10, 14, 25, 0.96)',
+    border: '1px solid #415073',
+    borderRadius: 6,
+    padding: '6px 7px',
+    zIndex: 160,
+    pointerEvents: 'none',
+    boxShadow: '0 3px 10px rgba(0,0,0,0.35)',
+  },
+  inventoryTooltipTitle: { color: '#e4ecff', fontFamily: 'monospace', fontSize: 10, marginBottom: 4 },
+  inventoryTooltipBody: { color: '#b3c1dd', fontFamily: 'monospace', fontSize: 9, lineHeight: 1.25 },
+  inventoryTooltipCharges: { color: '#c5e1a5', fontFamily: 'monospace', fontSize: 9, marginTop: 4 },
   summonCount: { fontSize: 12, color: '#66bb6a', fontFamily: 'monospace' },
   tagsTab: { display: 'flex', flexDirection: 'column', gap: 4 },
   emptyText: { fontSize: 10, color: '#555', fontFamily: 'monospace', margin: 0 },

@@ -12,6 +12,7 @@ import { SettingsPanel } from './ui/panels/SettingsPanel';
 import { SidePanel } from './ui/panels/SidePanel';
 import { BuildSummary } from './ui/panels/BuildSummary';
 import { DebugOverlay } from './ui/panels/DebugOverlay';
+import { encounterLootIcon } from './ui/itemPresentation';
 
 initializeRegistry();
 
@@ -189,7 +190,7 @@ const App: React.FC = () => {
                   onMouseLeave={() => setLootTooltip(null)}
                 >
                   <div style={{ color: '#ffd54f', fontFamily: 'monospace', fontSize: 11, display: 'flex', justifyContent: 'space-between' }}>
-                    <span>{item.name}</span>
+                    <span>{encounterLootIcon(item)} {item.name}</span>
                     <span style={{ color: '#9aa6bf' }}>[{item.rarity}]</span>
                   </div>
                 </div>

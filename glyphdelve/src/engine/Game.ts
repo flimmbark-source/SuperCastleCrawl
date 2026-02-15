@@ -66,7 +66,8 @@ export class Game {
   private autoAttackCooldown = 0.6;
   private turnPhase: 'player' | 'enemy' = 'player';
   private enemyTurnTimer = 0;
-  private readonly enemyTurnDuration = 0.35;
+  private readonly baseGlobalCooldown = 0.35;
+  private currentGlobalCooldown = this.baseGlobalCooldown;
   private readonly playerStepDistance = 32;
 
   constructor(seed: number, callbacks: GameCallbacks, settings: AccessibilitySettings) {
@@ -384,7 +385,7 @@ export class Game {
 
     if (this.enemyTurnTimer <= 0) {
       this.turnPhase = 'player';
-      this.autoAttackTimer = Math.max(0, this.autoAttackTimer - this.enemyTurnDuration);
+      this.autoAttackTimer = Math.max(0, this.autoAttackTimer - this.currentGlobalCooldown);
       addCombatLog(this.state, {
         type: 'trigger',
         source: 'system',
@@ -398,11 +399,11 @@ export class Game {
 
     for (let i = 0; i < player.skills.length; i++) {
       const skill = player.skills[i];
-      skill.cooldownRemaining = Math.max(0, skill.cooldownRemaining - this.enemyTurnDuration);
+      skill.cooldownRemaining = Math.max(0, skill.cooldownRemaining - this.currentGlobalCooldown);
       const actionKey = `skill${i + 1}`;
       if (this.input.isActionJustPressed(actionKey) && skill.cooldownRemaining <= 0) {
         this.useSkill(skill, i);
-        this.beginEnemyTurn();
+        this.beginEnemyTurn(this.getSkillGlobalCooldown(skill));
         return true;
       }
     }
@@ -414,7 +415,7 @@ export class Game {
       player.rotation = -Math.PI / 2;
       player.animState = 'move';
       this.spawnTrailIfNeeded(prevPos);
-      this.beginEnemyTurn();
+      this.beginEnemyTurn(this.getMovementGlobalCooldown());
       return true;
     }
     if (this.input.isActionJustPressed('moveDown')) {
@@ -422,7 +423,7 @@ export class Game {
       player.rotation = Math.PI / 2;
       player.animState = 'move';
       this.spawnTrailIfNeeded(prevPos);
-      this.beginEnemyTurn();
+      this.beginEnemyTurn(this.getMovementGlobalCooldown());
       return true;
     }
     if (this.input.isActionJustPressed('moveLeft')) {
@@ -430,7 +431,7 @@ export class Game {
       player.rotation = Math.PI;
       player.animState = 'move';
       this.spawnTrailIfNeeded(prevPos);
-      this.beginEnemyTurn();
+      this.beginEnemyTurn(this.getMovementGlobalCooldown());
       return true;
     }
     if (this.input.isActionJustPressed('moveRight')) {
@@ -438,14 +439,14 @@ export class Game {
       player.rotation = 0;
       player.animState = 'move';
       this.spawnTrailIfNeeded(prevPos);
-      this.beginEnemyTurn();
+      this.beginEnemyTurn(this.getMovementGlobalCooldown());
       return true;
     }
 
     player.pos.x = Math.max(-ARENA_SIZE, Math.min(ARENA_SIZE, player.pos.x));
     player.pos.y = Math.max(-ARENA_SIZE, Math.min(ARENA_SIZE, player.pos.y));
 
-    this.autoAttackTimer = Math.max(0, this.autoAttackTimer - this.enemyTurnDuration);
+    this.autoAttackTimer = Math.max(0, this.autoAttackTimer - this.currentGlobalCooldown);
     if (this.input.isMouseJustClicked() && this.autoAttackTimer <= 0) {
       this.autoAttackTimer = this.autoAttackCooldown / player.attackSpeed;
       const dir = { x: Math.cos(player.rotation), y: Math.sin(player.rotation) };
@@ -472,7 +473,7 @@ export class Game {
       };
       this.state.entities.push(proj);
       player.animState = 'attack';
-      this.beginEnemyTurn();
+      this.beginEnemyTurn(this.getBasicAttackGlobalCooldown());
       return true;
     }
 
@@ -506,12 +507,13 @@ export class Game {
     if (this.renderer) this.renderer.spawnParticles(pos.x, pos.y, '#8bc34a', 4);
   }
 
-  private beginEnemyTurn() {
+  private beginEnemyTurn(globalCooldown: number = this.baseGlobalCooldown) {
     const player = this.state.player;
     player.pos.x = Math.max(-ARENA_SIZE, Math.min(ARENA_SIZE, player.pos.x));
     player.pos.y = Math.max(-ARENA_SIZE, Math.min(ARENA_SIZE, player.pos.y));
+    this.currentGlobalCooldown = Math.max(0.2, globalCooldown);
     this.turnPhase = 'enemy';
-    this.enemyTurnTimer = this.enemyTurnDuration;
+    this.enemyTurnTimer = this.currentGlobalCooldown;
     addCombatLog(this.state, {
       type: 'trigger',
       source: 'system',
@@ -519,6 +521,18 @@ export class Game {
     });
   }
 
+
+  private getSkillGlobalCooldown(skill: ActiveSkill): number {
+    return Math.max(0.3, Math.min(1.1, skill.def.cooldown * 0.45));
+  }
+
+  private getMovementGlobalCooldown(): number {
+    return 0.28;
+  }
+
+  private getBasicAttackGlobalCooldown(): number {
+    return 0.42;
+  }
   private checkRoomClear() {
     const livingEnemies = this.state.entities.filter(
       e => e.type === 'enemy' && e.alive

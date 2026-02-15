@@ -643,6 +643,7 @@ export function updateTimers(state: RunState, dt: number) {
     if ((e as any)._weakenedMs > 0) (e as any)._weakenedMs -= dt * 1000;
     if ((e as any)._rootMs > 0) (e as any)._rootMs -= dt * 1000;
     if ((e as any).abilityPopupMs > 0) (e as any).abilityPopupMs -= dt * 1000;
+    if ((e as any)._meleeSwingMs > 0) (e as any)._meleeSwingMs -= dt * 1000;
     if (e.invulnMs > 0) e.invulnMs -= dt * 1000;
     if (e.flashMs > 0) e.flashMs -= dt * 1000;
     if (!e.alive && e.deathAnimMs > 0) e.deathAnimMs -= dt * 1000;
