@@ -104,6 +104,7 @@ export function applyDrops(state: RunState, drops: DropResult) {
       def: itemDef,
       modifiers: [],
       melded: false,
+      cooldownRemaining: 0,
     });
 
     addCombatLog(state, {

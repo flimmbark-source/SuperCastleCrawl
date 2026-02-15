@@ -73,6 +73,17 @@ const BuildTab: React.FC<{ player: PlayerEntity; state: RunState; onUseInventory
             <span style={styles.buildItemRarity}>[{i.def.rarity}]</span>
           </div>
           <div style={styles.itemDescription}>{buildItemEffectSummary(i)}</div>
+          {i.def.cooldown > 0 && (
+            <div style={{
+              ...styles.itemCooldownBar,
+              color: i.cooldownRemaining > 0 ? '#ef5350' : '#4caf50',
+            }}>
+              {i.cooldownRemaining > 0
+                ? `CD: ${i.cooldownRemaining.toFixed(1)}s / ${i.def.cooldown}s`
+                : `Ready (${i.def.cooldown}s CD)`
+              }
+            </div>
+          )}
         </div>
       ))}
       {player.items.length === 0 && <p style={styles.emptyText}>No equipped items yet</p>}
@@ -193,6 +204,7 @@ const styles: Record<string, React.CSSProperties> = {
   buildItemRarity: { fontSize: 8, color: '#888', fontFamily: 'monospace' },
   itemCard: { border: '1px solid #2e3446', borderRadius: 4, padding: '4px 6px', marginBottom: 4, backgroundColor: 'rgba(255,255,255,0.02)' },
   itemDescription: { fontSize: 9, color: '#97a2bd', fontFamily: 'monospace', lineHeight: 1.25 },
+  itemCooldownBar: { fontSize: 8, fontFamily: 'monospace', marginTop: 2, fontWeight: 'bold' },
   inventoryContainer: { display: 'flex', flexDirection: 'column', gap: 6 },
   inventoryButton: { border: '1px solid #455a64', backgroundColor: 'rgba(38, 50, 56, 0.45)', borderRadius: 4, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 2, padding: '6px', cursor: 'pointer' },
   inventoryName: { fontSize: 10, color: '#e0f2f1', fontFamily: 'monospace', fontWeight: 'bold' },

@@ -92,6 +92,7 @@ export interface ItemDef {
   rarity: Rarity;
   baseWeight: number;
   slot: 'weapon' | 'armor' | 'accessory' | 'relic';
+  cooldown: number; // 0 = passive only, >0 = active cooldown in seconds
   effects: ItemEffect[];
   synergyNote: string;
 }
@@ -243,6 +244,7 @@ export interface ActiveItem {
   def: ItemDef;
   modifiers: ModifierDef[];
   melded: boolean;
+  cooldownRemaining: number;
 }
 
 export interface InventoryItem {

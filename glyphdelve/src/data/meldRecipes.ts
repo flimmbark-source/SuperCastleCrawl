@@ -147,6 +147,7 @@ export const meldedItems = [
     rarity: 'Rare' as const,
     baseWeight: 0.35,
     slot: 'weapon' as const,
+    cooldown: 0,
     effects: [
       { type: 'stat_mod' as const, stat: 'summon_damage', value: 0.15, percent: true },
       { type: 'stat_mod' as const, stat: 'totem_duration', value: 0.30, percent: true },
@@ -159,12 +160,13 @@ export const meldedItems = [
     icon: '\u{1F335}', // cactus
     description: 'Armor covered in toxic thorns. Reflect damage and poison attackers.',
     tags: ['Poison', 'Physical', 'OnDamageTaken', 'DOT'] as const,
-    triggerSentence: 'When hit, deal 8 physical + apply 3 poison stacks to attacker (1s cooldown).',
+    triggerSentence: 'When hit, deal 8 physical + apply 3 poison stacks to attacker (3s cooldown).',
     rarity: 'Rare' as const,
     baseWeight: 0.35,
     slot: 'armor' as const,
+    cooldown: 3,
     effects: [
-      { type: 'trigger' as const, trigger: { event: 'OnDamageTaken' as const, effect: 'poison_reflect', value: 8, cooldownMs: 1000 } },
+      { type: 'trigger' as const, trigger: { event: 'OnDamageTaken' as const, effect: 'poison_reflect', value: 8, cooldownMs: 3000 } },
     ],
     synergyNote: 'Combines defensive reflection with poison offense. Tank-DOT hybrid.',
   },

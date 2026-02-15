@@ -200,10 +200,9 @@ function processOnDamageTakenTriggers(
     // Guardian Bark Amulet (emergency shield)
     const barkAmulet = player.items.find(i => i.def.id === 'guardian_bark_amulet');
     if (barkAmulet) {
-      const cd = (player as any)._barkShieldCooldown || 0;
-      if (player.hp / player.maxHp <= 0.3 && cd <= 0 && !(player as any)._barkShieldHp) {
+      if (player.hp / player.maxHp <= 0.3 && barkAmulet.cooldownRemaining <= 0 && !(player as any)._barkShieldHp) {
         (player as any)._barkShieldHp = 25;
-        (player as any)._barkShieldCooldown = 60;
+        barkAmulet.cooldownRemaining = barkAmulet.def.cooldown;
         addCombatLog(state, {
           type: 'trigger',
           source: 'item',
@@ -214,11 +213,10 @@ function processOnDamageTakenTriggers(
 
     // Bramble Heart flat reflect
     const brambleHeart = player.items.find(i => i.def.id === 'bramble_heart');
-    const brambleCd = (player as any)._brambleCd || 0;
-    if (brambleHeart && attacker.faction === 'enemy' && brambleCd <= 0) {
+    if (brambleHeart && attacker.faction === 'enemy' && brambleHeart.cooldownRemaining <= 0) {
       const reflectDmg = 6;
       attacker.hp -= reflectDmg;
-      (player as any)._brambleCd = 0.5;
+      brambleHeart.cooldownRemaining = brambleHeart.def.cooldown;
       addCombatLog(state, {
         type: 'trigger',
         source: 'item',
@@ -263,11 +261,12 @@ function processOnHitTriggers(
     }
 
     const sporeSac = player.items.find(i => i.def.id === 'spore_sac');
-    if (sporeSac && target.type === 'enemy') {
+    if (sporeSac && target.type === 'enemy' && sporeSac.cooldownRemaining <= 0) {
       const enemy = target as EnemyEntity;
       if (enemy.poisonStacks >= HARD_CAPS.maxPoisonStacks) {
         enemy.hp -= 30;
         enemy.flashMs = 200;
+        sporeSac.cooldownRemaining = sporeSac.def.cooldown;
         addCombatLog(state, {
           type: 'trigger',
           source: 'item',
@@ -571,6 +570,13 @@ export function cleanupEntities(state: RunState) {
 
 // --- Timer updates ---
 export function updateTimers(state: RunState, dt: number) {
+  // Tick item cooldowns
+  state.player.items.forEach(item => {
+    if (item.cooldownRemaining > 0) {
+      item.cooldownRemaining = Math.max(0, item.cooldownRemaining - dt);
+    }
+  });
+
   (state.player as any)._brambleCd = Math.max(0, ((state.player as any)._brambleCd || 0) - dt);
   (state.player as any)._barkShieldCooldown = Math.max(0, ((state.player as any)._barkShieldCooldown || 0) - dt);
 

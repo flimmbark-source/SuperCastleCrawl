@@ -229,7 +229,7 @@ export function executeMeld(
       registry.findMeldRecipe(input1.tags, input2.tags, meldType)?.outputId || ''
     );
     if (meldedItem) {
-      player.items.push({ def: meldedItem, modifiers: [], melded: true });
+      player.items.push({ def: meldedItem, modifiers: [], melded: true, cooldownRemaining: 0 });
     }
   }
 

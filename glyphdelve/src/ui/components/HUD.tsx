@@ -1,5 +1,5 @@
 import React from 'react';
-import type { PlayerEntity, RunState, ActiveSkill, Tag } from '../../types';
+import type { PlayerEntity, RunState, ActiveSkill, ActiveItem, Tag } from '../../types';
 
 interface HUDProps {
   player: PlayerEntity;
@@ -61,6 +61,15 @@ export const HUD: React.FC<HUDProps> = ({ player, state, floor, nodeIndex }) => 
           </div>
         ))}
       </div>
+
+      {/* Item cooldown bar (only items with cooldowns) */}
+      {player.items.filter(i => i.def.cooldown > 0).length > 0 && (
+        <div style={styles.itemBar}>
+          {player.items.filter(i => i.def.cooldown > 0).map(item => (
+            <ItemSlot key={item.def.id} item={item} />
+          ))}
+        </div>
+      )}
     </>
   );
 };
@@ -95,6 +104,36 @@ const SkillSlot: React.FC<{ skill: ActiveSkill; index: number }> = ({ skill, ind
           <span key={t} style={styles.miniTag}>{t.slice(0, 3)}</span>
         ))}
       </div>
+    </div>
+  );
+};
+
+const ItemSlot: React.FC<{ item: ActiveItem }> = ({ item }) => {
+  const onCooldown = item.cooldownRemaining > 0;
+  const cdPercent = onCooldown ? (item.cooldownRemaining / item.def.cooldown) * 100 : 0;
+
+  return (
+    <div style={{
+      ...styles.itemSlot,
+      opacity: onCooldown ? 0.5 : 1,
+      borderColor: onCooldown ? '#555' : '#ab47bc',
+    }}
+    title={`${item.def.name}\n${item.def.triggerSentence}\nCooldown: ${item.def.cooldown}s`}
+    >
+      <div style={styles.itemIcon}>{item.def.icon}</div>
+      <div style={styles.itemName}>{item.def.name.split(' ').map(w => w[0]).join('')}</div>
+      {onCooldown && (
+        <div style={{
+          ...styles.cooldownOverlay,
+          height: `${cdPercent}%`,
+        }} />
+      )}
+      {onCooldown && (
+        <div style={styles.itemCdText}>{item.cooldownRemaining.toFixed(0)}s</div>
+      )}
+      {!onCooldown && (
+        <div style={styles.itemReady}>READY</div>
+      )}
     </div>
   );
 };
@@ -229,6 +268,55 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '0 2px',
     borderRadius: 2,
     fontFamily: 'monospace',
+  },
+  itemBar: {
+    position: 'absolute',
+    bottom: 76,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    display: 'flex',
+    gap: 4,
+    zIndex: 10,
+  },
+  itemSlot: {
+    width: 44,
+    height: 44,
+    backgroundColor: 'rgba(20, 20, 40, 0.9)',
+    border: '2px solid #ab47bc',
+    borderRadius: 6,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  itemIcon: {
+    fontSize: 16,
+    lineHeight: 1,
+  },
+  itemName: {
+    fontSize: 7,
+    color: '#aaa',
+    fontFamily: 'monospace',
+  },
+  itemCdText: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    fontSize: 11,
+    color: '#fff',
+    fontFamily: 'monospace',
+    fontWeight: 'bold',
+  },
+  itemReady: {
+    position: 'absolute',
+    bottom: 1,
+    fontSize: 6,
+    color: '#4caf50',
+    fontFamily: 'monospace',
+    fontWeight: 'bold',
   },
   emptySlot: {
     width: 56,

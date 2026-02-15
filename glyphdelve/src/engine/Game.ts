@@ -565,8 +565,10 @@ export class Game {
       const enemy = e as any;
       const isBoss = enemy.def?.id?.startsWith('boss_');
       const isElite = !!enemy.eliteModifier;
-      if (isElite && this.hasItem('moonbone_charm')) {
+      const moonboneItem = this.state.player.items.find(i => i.def.id === 'moonbone_charm');
+      if (isElite && moonboneItem && moonboneItem.cooldownRemaining <= 0) {
         (this.state.player as any)._moonboneBoost = 0.12;
+        moonboneItem.cooldownRemaining = moonboneItem.def.cooldown;
       }
 
       const xpType = isBoss ? 'boss' : isElite ? 'elite' : 'normal';
@@ -636,7 +638,9 @@ export class Game {
       details: `Used skill: ${def.name}`,
     });
 
-    if (this.hasItem('echo_seed') && this.rng.chance(0.15)) {
+    const echoSeedItem = player.items.find(i => i.def.id === 'echo_seed');
+    if (echoSeedItem && echoSeedItem.cooldownRemaining <= 0 && this.rng.chance(0.15)) {
+      echoSeedItem.cooldownRemaining = echoSeedItem.def.cooldown;
       const dir = { x: Math.cos(player.rotation), y: Math.sin(player.rotation) };
       const echo: ProjectileEntity = {
         id: `echo_${Date.now()}_${Math.random()}`,
