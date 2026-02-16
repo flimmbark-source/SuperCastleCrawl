@@ -13,7 +13,8 @@ import { registry } from './DataRegistry';
 import {
   processDamage, processPoison, updateProjectiles, updateHazards,
   updateSummons, cleanupEntities, updateTimers, processRegen,
-  dist, dirTo, findNearestEnemy
+  dist, dirTo, findNearestEnemy, processBleed, updateStatusEffects,
+  processOnAreaDamageTriggers
 } from '../systems/CombatSystem';
 import { awardXP, XP_REWARDS, generateLevelUpOffers, applyLevelUpChoice } from '../systems/LevelSystem';
 import { rollDrops, applyDrops, checkPityDrop, createGuaranteedEncounterDrop } from '../systems/DropSystem';
@@ -375,6 +376,7 @@ export class Game {
     updateProjectiles(this.state, dt);
     updateHazards(this.state, dt);
     processPoison(this.state, dt);
+    updateStatusEffects(this.state, dt);
     processRegen(this.state, dt);
     updateTimers(this.state, dt);
 
@@ -385,6 +387,8 @@ export class Game {
 
     if (this.enemyTurnTimer <= 0) {
       this.turnPhase = 'player';
+      // Process Bleed at start of turn
+      processBleed(this.state);
       this.autoAttackTimer = Math.max(0, this.autoAttackTimer - this.currentGlobalCooldown);
       addCombatLog(this.state, {
         type: 'trigger',
@@ -629,7 +633,33 @@ export class Game {
 
     player.animState = 'attack';
 
-    if (def.summonId) {
+    if (def.id === 'bear_form_transform' || def.id === 'bear_form_enhanced') {
+      // Toggle between Caster and Bear forms
+      (player as any)._bearForm = !(player as any)._bearForm;
+      const formName = (player as any)._bearForm ? 'Bear Form' : 'Caster Form';
+      if (this.renderer) {
+        const color = (player as any)._bearForm ? '#8b4513' : '#4caf50';
+        this.renderer.spawnParticles(player.pos.x, player.pos.y, color, 15);
+      }
+      addCombatLog(this.state, {
+        type: 'trigger',
+        source: 'player',
+        details: `Transformed to ${formName}`,
+      });
+      // Process OnTransform triggers (Feral Adaptation)
+      const feralAdaptation = player.passives.find(p => p.def.id === 'feral_adaptation');
+      if (feralAdaptation && feralAdaptation.active) {
+        player.invulnMs = 2000; // 2s invulnerability
+        // Deal 60 radius AoE damage
+        this.dealAoeDamage(player.pos, 60, 12, ['AOE', 'OnTransform']);
+        if (this.renderer) this.renderer.spawnParticles(player.pos.x, player.pos.y, '#ff9800', 20);
+        addCombatLog(this.state, {
+          type: 'trigger',
+          source: 'feral_adaptation',
+          details: 'Feral Adaptation: gained invulnerability and dealt burst AoE',
+        });
+      }
+    } else if (def.summonId) {
       this.spawnSummon(def);
     } else if (def.projectileSpeed) {
       this.fireSkillProjectile(def);
@@ -865,6 +895,30 @@ export class Game {
           }, this.state);
         }
       });
+    }
+  }
+
+  private dealAoeDamage(center: Vec2, radius: number, damage: number, tags: Tag[]) {
+    const player = this.state.player;
+    const hitTargets: Entity[] = [];
+
+    this.state.entities.forEach(e => {
+      if (e.alive && e.faction === 'enemy' && dist(e.pos, center) < radius) {
+        processDamage({
+          attackerId: 'player',
+          targetId: e.id,
+          baseDamage: damage * player.damageScalar,
+          damageType: 'physical',
+          tags,
+          isProjectile: false,
+        }, this.state);
+        hitTargets.push(e);
+      }
+    });
+
+    // Trigger OnAreaDamage effects if targets were hit
+    if (hitTargets.length > 0 && typeof processOnAreaDamageTriggers === 'function') {
+      processOnAreaDamageTriggers(player, hitTargets, damage, this.state, { depth: 0, triggerCounts: new Map(), spawnCount: 0 });
     }
   }
 

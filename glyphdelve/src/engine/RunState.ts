@@ -4,9 +4,13 @@ import type {
 } from '../types';
 import { xpForLevel } from '../types';
 import { SeededRNG } from './SeededRNG';
+import { registry } from './DataRegistry';
 
 export function createPlayer(): PlayerEntity {
-  return {
+  // Get the Transform skill from registry
+  const transformSkill = registry.getSkill('bear_form_transform');
+
+  const player: PlayerEntity = {
     id: 'player',
     type: 'player',
     pos: { x: 0, y: 0 },
@@ -39,6 +43,21 @@ export function createPlayer(): PlayerEntity {
     buildTags: new Map(),
     inventory: [],
   };
+
+  // Add Transform as starting skill
+  if (transformSkill) {
+    player.skills.push({
+      def: transformSkill,
+      cooldownRemaining: 0,
+      level: 1,
+      upgraded: false,
+    });
+  }
+
+  // Track form state (default to Caster form)
+  (player as any)._bearForm = false;
+
+  return player;
 }
 
 export function generateFloorMap(floor: number, rng: SeededRNG): FloorMap {
