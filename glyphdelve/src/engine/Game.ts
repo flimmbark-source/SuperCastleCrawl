@@ -619,6 +619,13 @@ export class Game {
 
     const player = this.state.player;
 
+    // Check for Repeating Echo buff (skip Transform and Repeating Echo itself)
+    const hasRepeatingEcho = (player as any)._repeatingEchoBuff > 0;
+    const shouldEcho = hasRepeatingEcho &&
+                       def.id !== 'repeating_echo' &&
+                       def.id !== 'bear_form_transform' &&
+                       def.id !== 'bear_form_enhanced';
+
     // Mycorrhizal Bond - reduce next non-summon cooldown after summon
     if (def.tags.includes('Summon')) {
       const mycBond = player.passives.find(p => p.def.id === 'mycorrhizal_bond');
@@ -632,6 +639,55 @@ export class Game {
     }
 
     player.animState = 'attack';
+
+    // Execute skill effect
+    this.executeSkillEffect(def);
+
+    // If Repeating Echo active, execute again at 60% effectiveness
+    if (shouldEcho) {
+      const originalDamageScalar = player.damageScalar;
+      player.damageScalar *= 0.60; // 60% effectiveness for echo
+      this.executeSkillEffect(def);
+      player.damageScalar = originalDamageScalar;
+
+      // Consume Repeating Echo buff
+      delete (player as any)._repeatingEchoBuff;
+      if (this.renderer) this.renderer.spawnParticles(player.pos.x, player.pos.y, '#b39ddb', 15);
+      addCombatLog(this.state, {
+        type: 'trigger',
+        source: 'repeating_echo',
+        details: `${def.name} echoed at 60% effectiveness`,
+      });
+    }
+
+    this.spawnSkillVisuals(def.id);
+
+    addCombatLog(this.state, {
+      type: 'trigger',
+      source: 'player',
+      details: `Used skill: ${def.name}`,
+    });
+
+    if (this.hasItem('echo_seed') && this.rng.chance(0.15)) {
+      const dir = { x: Math.cos(player.rotation), y: Math.sin(player.rotation) };
+      const echo: ProjectileEntity = {
+        id: `echo_${Date.now()}_${Math.random()}`,
+        type: 'projectile',
+        pos: { x: player.pos.x + dir.x * 15, y: player.pos.y + dir.y * 15 },
+        vel: { x: dir.x * 260, y: dir.y * 260 },
+        hp: 1, maxHp: 1, radius: 4, speed: 260, faction: 'player',
+        tags: ['Projectile', 'Nature'], alive: true,
+        invulnMs: 0, flashMs: 0, deathAnimMs: 0, animState: 'idle', rotation: player.rotation,
+        ownerId: 'player', damage: 4 * player.damageScalar, piercing: false, lifetime: 1.1, maxLifetime: 1.1, hitEntities: new Set(),
+      };
+      this.state.entities.push(echo);
+      if (this.renderer) this.renderer.spawnParticles(player.pos.x, player.pos.y, '#b39ddb', 6);
+      addCombatLog(this.state, { type: 'trigger', source: 'item', details: 'Echo Seed duplicated a weakened cast' });
+    }
+  }
+
+  private executeSkillEffect(def: typeof this.state.player.skills[0]['def']) {
+    const player = this.state.player;
 
     if (def.id === 'bear_form_transform' || def.id === 'bear_form_enhanced') {
       // Toggle between Caster and Bear forms
@@ -675,31 +731,26 @@ export class Game {
         source: 'player',
         details: `Activated Fungal Link (${def.duration}s)`,
       });
-    }
-
-    this.spawnSkillVisuals(def.id);
-
-    addCombatLog(this.state, {
-      type: 'trigger',
-      source: 'player',
-      details: `Used skill: ${def.name}`,
-    });
-
-    if (this.hasItem('echo_seed') && this.rng.chance(0.15)) {
-      const dir = { x: Math.cos(player.rotation), y: Math.sin(player.rotation) };
-      const echo: ProjectileEntity = {
-        id: `echo_${Date.now()}_${Math.random()}`,
-        type: 'projectile',
-        pos: { x: player.pos.x + dir.x * 15, y: player.pos.y + dir.y * 15 },
-        vel: { x: dir.x * 260, y: dir.y * 260 },
-        hp: 1, maxHp: 1, radius: 4, speed: 260, faction: 'player',
-        tags: ['Projectile', 'Nature'], alive: true,
-        invulnMs: 0, flashMs: 0, deathAnimMs: 0, animState: 'idle', rotation: player.rotation,
-        ownerId: 'player', damage: 4 * player.damageScalar, piercing: false, lifetime: 1.1, maxLifetime: 1.1, hitEntities: new Set(),
-      };
-      this.state.entities.push(echo);
-      if (this.renderer) this.renderer.spawnParticles(player.pos.x, player.pos.y, '#b39ddb', 6);
-      addCombatLog(this.state, { type: 'trigger', source: 'item', details: 'Echo Seed duplicated a weakened cast' });
+    } else if (def.id === 'repeating_echo') {
+      // Grant Repeating Echo buff (8s duration)
+      (player as any)._repeatingEchoBuff = (def.duration || 8) * 1000;
+      if (this.renderer) this.renderer.spawnParticles(player.pos.x, player.pos.y, '#b39ddb', 12);
+      addCombatLog(this.state, {
+        type: 'trigger',
+        source: 'player',
+        details: 'Activated Repeating Echo - next ability triggers twice',
+      });
+    } else if (def.id === 'thorn_mantle') {
+      // Grant Thorn Mantle buff (6s duration)
+      (player as any)._thornMantleBuff = (def.duration || 6) * 1000;
+      (player as any)._thornMantleDamage = def.damage || 8;
+      (player as any)._thornMantleRadius = def.aoeRadius || 40;
+      if (this.renderer) this.renderer.spawnParticles(player.pos.x, player.pos.y, '#8b4513', 15);
+      addCombatLog(this.state, {
+        type: 'trigger',
+        source: 'player',
+        details: `Activated Thorn Mantle (${def.duration}s) - retaliate when damaged`,
+      });
     }
   }
 
@@ -1006,6 +1057,37 @@ export class Game {
 
   private updatePeriodicEffects(dt: number) {
     const player = this.state.player;
+
+    // Update buff timers (convert dt to ms)
+    const dtMs = dt * 1000;
+
+    // Repeating Echo buff
+    if ((player as any)._repeatingEchoBuff !== undefined) {
+      (player as any)._repeatingEchoBuff -= dtMs;
+      if ((player as any)._repeatingEchoBuff <= 0) {
+        delete (player as any)._repeatingEchoBuff;
+        addCombatLog(this.state, {
+          type: 'trigger',
+          source: 'player',
+          details: 'Repeating Echo expired',
+        });
+      }
+    }
+
+    // Thorn Mantle buff
+    if ((player as any)._thornMantleBuff !== undefined) {
+      (player as any)._thornMantleBuff -= dtMs;
+      if ((player as any)._thornMantleBuff <= 0) {
+        delete (player as any)._thornMantleBuff;
+        delete (player as any)._thornMantleDamage;
+        delete (player as any)._thornMantleRadius;
+        addCombatLog(this.state, {
+          type: 'trigger',
+          source: 'player',
+          details: 'Thorn Mantle expired',
+        });
+      }
+    }
 
     // Verdant Pulse (10s heal)
     const verdantPulse = player.passives.find(p => p.def.id === 'verdant_pulse');

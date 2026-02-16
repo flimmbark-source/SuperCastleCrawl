@@ -273,6 +273,39 @@ function processOnDamageTakenTriggers(
         }
       }
     }
+
+    // Thorn Mantle buff (if active)
+    if ((player as any)._thornMantleBuff && (player as any)._thornMantleBuff > 0) {
+      const thornDamage = (player as any)._thornMantleDamage || 8;
+      const thornRadius = (player as any)._thornMantleRadius || 40;
+      const hitTargets: Entity[] = [];
+
+      // Deal AoE damage around player
+      state.entities.forEach(e => {
+        if (e.alive && e.faction === 'enemy' && dist(e.pos, player.pos) < thornRadius) {
+          const dmgEvent = {
+            attackerId: 'player',
+            targetId: e.id,
+            baseDamage: thornDamage * player.damageScalar,
+            damageType: 'physical',
+            tags: ['AOE', 'OnDamageTaken'] as any,
+            isProjectile: false,
+          };
+          processDamage(dmgEvent, state, ctx);
+          hitTargets.push(e);
+        }
+      });
+
+      if (hitTargets.length > 0) {
+        addCombatLog(state, {
+          type: 'trigger',
+          source: 'thorn_mantle',
+          details: `Thorn Mantle retaliated against ${hitTargets.length} enemies`,
+        });
+        // Trigger OnAreaDamage effects
+        processOnAreaDamageTriggers(player, hitTargets, thornDamage, state, ctx);
+      }
+    }
   }
 }
 
@@ -373,7 +406,7 @@ function processOnDebuffAppliedTriggers(
   }
 }
 
-function processOnAreaDamageTriggers(
+export function processOnAreaDamageTriggers(
   attacker: Entity, targets: Entity[], damage: number,
   state: RunState, ctx: TriggerContext
 ) {
