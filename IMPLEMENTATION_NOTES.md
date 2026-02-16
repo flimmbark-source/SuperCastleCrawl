@@ -35,10 +35,16 @@ This implementation adds comprehensive unique mechanics to the Druid class in Gl
 
 ### 3. New Druid Abilities (`/src/data/skills.ts`)
 
-**Added 3 new skills:**
-1. **Roaring Sprint** (Uncommon): Transform passive - Move gains 80 radius AoE Roar at destination (6 damage), +30% Move GCD
-2. **Repeating Echo** (Rare): Active buff - Next ability triggers twice (60% on second), 18s cooldown
-3. **Thorn Mantle** (Uncommon): Active defensive - 6s buff that emits 40 radius AoE when damaged (8 damage), 14s cooldown
+**Starter Ability (Player "1" key):**
+1. **Bear Form Transform** (Common): Toggle between Caster and Bear forms. Changes Move and Attack behavior:
+   - **Caster Form**: Attack = Bark Missile (ranged projectile, 14 damage)
+   - **Bear Form**: Attack = Bear Claw (melee slash, 12 damage), Move = Trample (6 damage to enemies in path)
+   - Upgrade: Enhanced Bear Form (+15% move speed, Trample 9 damage)
+
+**Additional Skills:**
+2. **Roaring Sprint** (Uncommon): Transform passive - Move gains 80 radius AoE Roar at destination (6 damage), +30% Move GCD
+3. **Repeating Echo** (Rare): Active buff - Next ability triggers twice (60% on second), 18s cooldown
+4. **Thorn Mantle** (Uncommon): Active defensive - 6s buff that emits 40 radius AoE when damaged (8 damage), 14s cooldown
 
 ### 4. New Druid Passives (`/src/data/passives.ts`)
 
