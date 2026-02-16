@@ -2,6 +2,34 @@ import type { SkillDef } from '../types';
 
 export const druidSkills: SkillDef[] = [
   {
+    id: 'bark_missile',
+    name: 'Bark Missile',
+    description: 'Fire a hardened bark projectile that deals nature damage. Your basic attack spell.',
+    tags: ['Nature', 'Ranged', 'Projectile'],
+    triggerSentence: 'When cast, fire a projectile dealing 14 nature damage to the first enemy hit.',
+    rarity: 'Common',
+    baseWeight: 1.0,
+    cooldown: 2,
+    damage: 14,
+    range: 240,
+    projectileSpeed: 320,
+    synergyNote: 'Basic damage tool. Combines with Momentum Strike for empowered shots and Splinter Fang for multi-target.',
+    upgrades: [
+      {
+        id: 'bark_missile_splash',
+        name: 'Bark Splash',
+        description: 'Bark Missile explodes on impact, dealing damage in a small area.',
+        tags: ['Nature', 'Ranged', 'Projectile', 'AOE'],
+        triggerSentence: 'When projectile hits or expires, deal 32 radius splash damage around impact point.',
+        rarity: 'Uncommon',
+        baseWeight: 0.65,
+        parentSkillId: 'bark_missile',
+        modifications: { aoeRadius: 32 },
+        synergyNote: 'Transforms single-target into AoE. Strong with Bleeding Wounds and OnAreaDamage triggers.',
+      }
+    ],
+  },
+  {
     id: 'summon_briar_wolf',
     name: 'Summon Briar Wolf',
     description: 'Call a thorned wolf that chases nearby enemies and attacks with melee strikes.',
