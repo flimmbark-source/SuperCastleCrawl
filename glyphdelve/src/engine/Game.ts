@@ -412,13 +412,22 @@ export class Game {
       }
     }
 
-    const step = this.playerStepDistance * (1 + this.getItemStatBonus('move_speed'));
+    const inBearForm = (player as any)._bearForm === true;
+    let step = this.playerStepDistance * (1 + this.getItemStatBonus('move_speed'));
+
+    // Bear Form: 1.5x distance
+    if (inBearForm) {
+      step *= 1.5;
+    }
+
     const prevPos = { ...player.pos };
     if (this.input.isActionJustPressed('moveUp')) {
       player.pos.y -= step;
       player.rotation = -Math.PI / 2;
       player.animState = 'move';
+      this.applyTrample(prevPos, player.pos);
       this.spawnTrailIfNeeded(prevPos);
+      this.checkRoaringSprint();
       this.beginEnemyTurn(this.getMovementGlobalCooldown());
       return true;
     }
@@ -426,7 +435,9 @@ export class Game {
       player.pos.y += step;
       player.rotation = Math.PI / 2;
       player.animState = 'move';
+      this.applyTrample(prevPos, player.pos);
       this.spawnTrailIfNeeded(prevPos);
+      this.checkRoaringSprint();
       this.beginEnemyTurn(this.getMovementGlobalCooldown());
       return true;
     }
@@ -434,7 +445,9 @@ export class Game {
       player.pos.x -= step;
       player.rotation = Math.PI;
       player.animState = 'move';
+      this.applyTrample(prevPos, player.pos);
       this.spawnTrailIfNeeded(prevPos);
+      this.checkRoaringSprint();
       this.beginEnemyTurn(this.getMovementGlobalCooldown());
       return true;
     }
@@ -442,7 +455,9 @@ export class Game {
       player.pos.x += step;
       player.rotation = 0;
       player.animState = 'move';
+      this.applyTrample(prevPos, player.pos);
       this.spawnTrailIfNeeded(prevPos);
+      this.checkRoaringSprint();
       this.beginEnemyTurn(this.getMovementGlobalCooldown());
       return true;
     }
@@ -453,31 +468,99 @@ export class Game {
     this.autoAttackTimer = Math.max(0, this.autoAttackTimer - this.currentGlobalCooldown);
     if (this.input.isMouseJustClicked() && this.autoAttackTimer <= 0) {
       this.autoAttackTimer = this.autoAttackCooldown / player.attackSpeed;
-      const dir = { x: Math.cos(player.rotation), y: Math.sin(player.rotation) };
-      const proj: ProjectileEntity = {
-        id: `proj_${Date.now()}_${Math.random()}`,
-        type: 'projectile',
-        pos: { x: player.pos.x + dir.x * 15, y: player.pos.y + dir.y * 15 },
-        vel: { x: dir.x * 300, y: dir.y * 300 },
-        hp: 1, maxHp: 1,
-        radius: 4,
-        speed: 300,
-        faction: 'player',
-        tags: ['Projectile', 'Physical'],
-        alive: true,
-        invulnMs: 0, flashMs: 0, deathAnimMs: 0,
-        animState: 'idle',
-        rotation: player.rotation,
-        ownerId: 'player',
-        damage: 8 * player.damageScalar,
-        piercing: false,
-        lifetime: 1.2,
-        maxLifetime: 1.2,
-        hitEntities: new Set(),
-      };
-      this.state.entities.push(proj);
       player.animState = 'attack';
-      this.beginEnemyTurn(this.getBasicAttackGlobalCooldown());
+
+      const inBearForm = (player as any)._bearForm === true;
+
+      if (inBearForm) {
+        // Bear Form: Double Claw Slash (120 range melee, 10 dmg, 48 radius AoE, +50% GCD)
+        const dir = { x: Math.cos(player.rotation), y: Math.sin(player.rotation) };
+        const clawRange = 120;
+        const clawAoeRadius = 48;
+        const clawDamage = 10 * player.damageScalar;
+
+        // Target point at max range
+        const targetX = player.pos.x + dir.x * clawRange;
+        const targetY = player.pos.y + dir.y * clawRange;
+        const hitTargets: Entity[] = [];
+
+        // Deal AoE damage at target location
+        this.state.entities.forEach(e => {
+          if (e.alive && e.faction === 'enemy') {
+            const distToTarget = Math.sqrt(
+              (e.pos.x - targetX) ** 2 + (e.pos.y - targetY) ** 2
+            );
+            if (distToTarget < clawAoeRadius) {
+              const dmgEvent = {
+                attackerId: 'player',
+                targetId: e.id,
+                baseDamage: clawDamage,
+                damageType: 'physical',
+                tags: ['AOE', 'Melee', 'Physical'] as any,
+                isProjectile: false,
+              };
+              processDamage(dmgEvent, this.state, {
+                rng: this.rng,
+                renderer: this.renderer,
+                now: Date.now()
+              });
+              hitTargets.push(e);
+            }
+          }
+        });
+
+        // Visual feedback
+        if (this.renderer) {
+          this.renderer.spawnParticles(targetX, targetY, '#8b4513', 15);
+        }
+
+        if (hitTargets.length > 0) {
+          addCombatLog(this.state, {
+            type: 'attack',
+            source: 'player',
+            details: `Claw Slash hit ${hitTargets.length} enemies for ${Math.round(clawDamage)} damage`,
+          });
+
+          // Trigger OnAreaDamage effects
+          processOnAreaDamageTriggers(player, hitTargets, clawDamage, this.state, {
+            rng: this.rng,
+            renderer: this.renderer,
+            now: Date.now()
+          });
+        }
+
+        // Bear Form GCD: 0.42s base * 1.5 = 0.63s
+        this.beginEnemyTurn(this.getBasicAttackGlobalCooldown() * 1.5);
+      } else {
+        // Human Form: Bark Missile (96 range, 8 dmg, Splash 32 radius on expire, 0.42s GCD)
+        const dir = { x: Math.cos(player.rotation), y: Math.sin(player.rotation) };
+        const proj: ProjectileEntity = {
+          id: `proj_${Date.now()}_${Math.random()}`,
+          type: 'projectile',
+          pos: { x: player.pos.x + dir.x * 15, y: player.pos.y + dir.y * 15 },
+          vel: { x: dir.x * 300, y: dir.y * 300 },
+          hp: 1, maxHp: 1,
+          radius: 4,
+          speed: 300,
+          faction: 'player',
+          tags: ['Projectile', 'Physical', 'Nature'],
+          alive: true,
+          invulnMs: 0, flashMs: 0, deathAnimMs: 0,
+          animState: 'idle',
+          rotation: player.rotation,
+          ownerId: 'player',
+          damage: 8 * player.damageScalar,
+          piercing: false,
+          lifetime: 0.32, // 96 range / 300 speed
+          maxLifetime: 0.32,
+          hitEntities: new Set(),
+          splashRadius: 32, // Splash on expire
+          splashDamage: 8 * player.damageScalar,
+        };
+        this.state.entities.push(proj);
+        this.beginEnemyTurn(this.getBasicAttackGlobalCooldown());
+      }
+
       return true;
     }
 
@@ -511,6 +594,88 @@ export class Game {
     if (this.renderer) this.renderer.spawnParticles(pos.x, pos.y, '#8bc34a', 4);
   }
 
+  private applyTrample(startPos: Vec2, endPos: Vec2) {
+    const player = this.state.player;
+    const inBearForm = (player as any)._bearForm === true;
+    if (!inBearForm) return;
+
+    // Bear Form Trample: Deal 6 damage to enemies moved through
+    const trampleDamage = 6 * player.damageScalar;
+    const trampleRadius = 24; // Detection radius along the path
+
+    this.state.entities.forEach(e => {
+      if (e.alive && e.faction === 'enemy') {
+        // Check if enemy is close to the movement path
+        const pathDist = distToLine(startPos, endPos, e.pos);
+        if (pathDist < trampleRadius + e.radius) {
+          const dmgEvent = {
+            attackerId: 'player',
+            targetId: e.id,
+            baseDamage: trampleDamage,
+            damageType: 'physical',
+            tags: ['Trample', 'OnMove', 'Physical'] as any,
+            isProjectile: false,
+          };
+          processDamage(dmgEvent, this.state, {
+            rng: this.rng,
+            renderer: this.renderer,
+            now: Date.now()
+          });
+        }
+      }
+    });
+  }
+
+  private checkRoaringSprint() {
+    const player = this.state.player;
+
+    // Check if player has Roaring Sprint skill
+    const roaringSprint = player.skills.find(s => s.def.id === 'roaring_sprint');
+    if (!roaringSprint) return;
+
+    // Check if player is in Bear Form
+    const inBearForm = (player as any)._bearForm === true;
+    if (!inBearForm) return;
+
+    // Emit AoE Roar at player's current position (destination)
+    const roarRadius = roaringSprint.def.aoeRadius || 80;
+    const roarDamage = (roaringSprint.def.damage || 6) * player.damageScalar;
+    const hitTargets: Entity[] = [];
+
+    this.state.entities.forEach(e => {
+      if (e.alive && e.faction === 'enemy' && dist(e.pos, player.pos) < roarRadius) {
+        const dmgEvent = {
+          attackerId: 'player',
+          targetId: e.id,
+          baseDamage: roarDamage,
+          damageType: 'physical',
+          tags: ['AOE', 'OnMove', 'Nature'] as any,
+          isProjectile: false,
+        };
+        processDamage(dmgEvent, this.state, { rng: this.rng, renderer: this.renderer, now: Date.now() });
+        hitTargets.push(e);
+      }
+    });
+
+    if (hitTargets.length > 0) {
+      // Spawn visual effect
+      if (this.renderer) this.renderer.spawnParticles(player.pos.x, player.pos.y, '#d2691e', 20);
+
+      addCombatLog(this.state, {
+        type: 'trigger',
+        source: 'roaring_sprint',
+        details: `Roar hit ${hitTargets.length} enemies for ${Math.round(roarDamage)} damage`,
+      });
+
+      // Trigger OnAreaDamage effects (like Bleeding Wounds)
+      processOnAreaDamageTriggers(player, hitTargets, roarDamage, this.state, {
+        rng: this.rng,
+        renderer: this.renderer,
+        now: Date.now()
+      });
+    }
+  }
+
   private beginEnemyTurn(globalCooldown: number = this.baseGlobalCooldown) {
     const player = this.state.player;
     player.pos.x = Math.max(-ARENA_SIZE, Math.min(ARENA_SIZE, player.pos.x));
@@ -531,7 +696,23 @@ export class Game {
   }
 
   private getMovementGlobalCooldown(): number {
-    return 0.28;
+    const player = this.state.player;
+    const inBearForm = (player as any)._bearForm === true;
+
+    // Base GCD: 0.28s
+    // Bear Form: +40% GCD = 0.392s
+    let gcd = 0.28;
+    if (inBearForm) {
+      gcd *= 1.4;
+    }
+
+    // Roaring Sprint adds another +30% if equipped
+    const roaringSprint = player.skills.find(s => s.def.id === 'roaring_sprint');
+    if (roaringSprint && inBearForm) {
+      gcd *= 1.3;
+    }
+
+    return gcd;
   }
 
   private getBasicAttackGlobalCooldown(): number {
@@ -691,8 +872,26 @@ export class Game {
 
     if (def.id === 'bear_form_transform' || def.id === 'bear_form_enhanced') {
       // Toggle between Caster and Bear forms
-      (player as any)._bearForm = !(player as any)._bearForm;
+      const wasInBearForm = (player as any)._bearForm === true;
+      (player as any)._bearForm = !wasInBearForm;
       const formName = (player as any)._bearForm ? 'Bear Form' : 'Caster Form';
+
+      // Bear Form: +20% max HP
+      if ((player as any)._bearForm) {
+        // Entering Bear Form: add +20% maxHp
+        const baseMaxHp = (player as any)._baseMaxHp || player.maxHp;
+        (player as any)._baseMaxHp = baseMaxHp;
+        const newMaxHp = Math.floor(baseMaxHp * 1.2);
+        const hpGain = newMaxHp - player.maxHp;
+        player.maxHp = newMaxHp;
+        player.hp = Math.min(player.hp + hpGain, player.maxHp); // Gain HP when transforming
+      } else {
+        // Leaving Bear Form: restore base maxHp
+        const baseMaxHp = (player as any)._baseMaxHp || 100;
+        player.maxHp = baseMaxHp;
+        player.hp = Math.min(player.hp, player.maxHp); // Clamp current HP
+      }
+
       if (this.renderer) {
         const color = (player as any)._bearForm ? '#8b4513' : '#4caf50';
         this.renderer.spawnParticles(player.pos.x, player.pos.y, color, 15);

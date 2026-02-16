@@ -642,6 +642,39 @@ export function updateProjectiles(state: RunState, dt: number) {
     proj.lifetime -= dt;
     if (proj.lifetime <= 0) {
       proj.alive = false;
+
+      // Handle splash damage on expire (Bark Missile)
+      if ((proj as any).splashRadius && (proj as any).splashDamage) {
+        const splashRadius = (proj as any).splashRadius;
+        const splashDamage = (proj as any).splashDamage;
+        const hitTargets: Entity[] = [];
+
+        state.entities.forEach(target => {
+          if (target.alive && target.faction === 'enemy' && dist(proj.pos, target.pos) < splashRadius) {
+            processDamage({
+              attackerId: proj.ownerId,
+              targetId: target.id,
+              baseDamage: splashDamage,
+              damageType: 'physical',
+              tags: ['AOE', 'Splash'],
+              isProjectile: false,
+            }, state);
+            hitTargets.push(target);
+          }
+        });
+
+        if (hitTargets.length > 0) {
+          // Trigger OnAreaDamage effects (like Bleeding Wounds)
+          const owner = state.entities.find(e => e.id === proj.ownerId) || state.player;
+          if (owner.type === 'player') {
+            processOnAreaDamageTriggers(owner as PlayerEntity, hitTargets, splashDamage, state, {
+              rng: { chance: () => false } as any,
+              renderer: undefined,
+              now: Date.now()
+            });
+          }
+        }
+      }
       return;
     }
 
