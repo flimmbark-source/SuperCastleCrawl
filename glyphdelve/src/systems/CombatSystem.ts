@@ -104,6 +104,30 @@ export function processDamage(
   if (attacker.faction === 'player' && attacker.type === 'summon') {
     const hiveMind = state.player.items.find(i => i.def.id === 'hive_mind_crown');
     if (hiveMind) mitigated *= 1.10;
+
+    // Packlord's Coronet: marked targets take +30% from summons
+    const packlord = state.player.items.find(i => i.def.id === 'packlord_coronet');
+    if (packlord && (target as any)._packlordMark) {
+      mitigated *= 1.30;
+    }
+  }
+
+  // Check for Brittle status (consume on hit)
+  if ((target as any).brittle) {
+    mitigated *= 1.50;
+    (target as any).brittle = false;
+    (target as any).brittleDuration = undefined;
+    addCombatLog(state, {
+      type: 'trigger',
+      source: 'brittle',
+      target: target.id,
+      details: `Brittle consumed on ${target.id} (+50% damage)`,
+    });
+  }
+
+  // Check for Exposed status (does not consume)
+  if ((target as any).exposed) {
+    mitigated *= 1.25;
   }
 
   // 4. Damage application
@@ -273,11 +297,14 @@ function processOnHitTriggers(
 
   if (attacker.type === 'player') {
     const player = attacker as PlayerEntity;
+
     // Check for poison application items
     const venomweave = player.items.find(i => i.def.id === 'venomweave_cloak');
     if (venomweave && target.type === 'enemy') {
       const enemy = target as EnemyEntity;
       enemy.poisonStacks = Math.min(HARD_CAPS.maxPoisonStacks, enemy.poisonStacks + 1);
+      // Trigger OnDebuffApplied
+      processOnDebuffAppliedTriggers(player, target, 'poison', state, ctx);
     }
 
     const sporeSac = player.items.find(i => i.def.id === 'spore_sac');
@@ -294,6 +321,81 @@ function processOnHitTriggers(
           details: `Spore Sac detonated on ${enemy.id} (30)` ,
         });
       }
+    }
+
+    // Brittle Fury: Apply Brittle on melee hits
+    const brittleFury = player.passives.find(p => p.def.id === 'brittle_fury');
+    if (brittleFury && brittleFury.active && target.type === 'enemy') {
+      // Check if this was a melee attack (TODO: need to track attack type)
+      const isMelee = (damage as any)._isMelee || false;
+      if (isMelee) {
+        applyBrittle(target, 3000);
+        addCombatLog(state, {
+          type: 'trigger',
+          source: 'brittle_fury',
+          target: target.id,
+          details: `Applied Brittle to ${target.id}`,
+        });
+        // Trigger OnDebuffApplied
+        processOnDebuffAppliedTriggers(player, target, 'brittle', state, ctx);
+      }
+    }
+  }
+}
+
+// --- New Trigger Processing Functions ---
+function processOnDebuffAppliedTriggers(
+  attacker: PlayerEntity, target: Entity, debuffType: string,
+  state: RunState, ctx: TriggerContext
+) {
+  // Debilitating Presence: Apply 1 Slow when any debuff is applied
+  const debilitatingPresence = attacker.passives.find(p => p.def.id === 'debilitating_presence');
+  if (debilitatingPresence && debilitatingPresence.active) {
+    applySlow(target, 1, 4000);
+    addCombatLog(state, {
+      type: 'trigger',
+      source: 'debilitating_presence',
+      target: target.id,
+      details: `Applied 1 Slow to ${target.id}`,
+    });
+  }
+
+  // Packlord's Coronet: Mark target for summons
+  const packlord = attacker.items.find(i => i.def.id === 'packlord_coronet');
+  if (packlord) {
+    (target as any)._packlordMark = 6000; // 6s duration (ms)
+    addCombatLog(state, {
+      type: 'trigger',
+      source: 'packlord_coronet',
+      target: target.id,
+      details: `Marked ${target.id} for summons (+30% damage)`,
+    });
+  }
+}
+
+function processOnAreaDamageTriggers(
+  attacker: Entity, targets: Entity[], damage: number,
+  state: RunState, ctx: TriggerContext
+) {
+  if (attacker.type === 'player') {
+    const player = attacker as PlayerEntity;
+
+    // Bleeding Wounds: Apply 1 Bleed to all enemies hit by AoE
+    const bleedingWounds = player.passives.find(p => p.def.id === 'bleeding_wounds');
+    if (bleedingWounds && bleedingWounds.active) {
+      targets.forEach(target => {
+        if (target.type === 'enemy') {
+          applyBleed(target, 1);
+          addCombatLog(state, {
+            type: 'trigger',
+            source: 'bleeding_wounds',
+            target: target.id,
+            details: `Applied 1 Bleed to ${target.id}`,
+          });
+          // Trigger OnDebuffApplied
+          processOnDebuffAppliedTriggers(player, target, 'bleed', state, ctx);
+        }
+      });
     }
   }
 }
@@ -390,6 +492,110 @@ export function processPoison(state: RunState, dt: number) {
         state.deathCauseTaxonomy.set(key, (state.deathCauseTaxonomy.get(key) || 0) + 1);
       }
     }
+  });
+}
+
+// --- Status Effect Processing ---
+export function processBleed(state: RunState) {
+  // Bleed triggers at start of player turn
+  state.entities.forEach(e => {
+    if (!e.alive) return;
+    const bleedStacks = (e as any).bleedStacks || 0;
+    if (bleedStacks > 0) {
+      const bleedDmg = bleedStacks;
+      e.hp -= bleedDmg;
+      e.flashMs = 150;
+
+      addCombatLog(state, {
+        type: 'damage',
+        source: 'bleed',
+        target: e.id,
+        value: bleedDmg,
+        details: `${e.id} took ${bleedDmg} bleed damage`,
+      });
+
+      // Reduce bleed by 1
+      (e as any).bleedStacks = Math.max(0, bleedStacks - 1);
+
+      if (e.hp <= 0) {
+        e.hp = 0;
+        e.alive = false;
+        e.animState = 'death';
+        e.deathAnimMs = 500;
+
+        if (e.type === 'enemy') {
+          addCombatLog(state, {
+            type: 'kill',
+            source: 'bleed',
+            target: e.id,
+            details: `${e.id} killed by bleed`,
+          });
+          const key = 'DoT';
+          state.deathCauseTaxonomy.set(key, (state.deathCauseTaxonomy.get(key) || 0) + 1);
+        }
+      }
+    }
+  });
+}
+
+export function applyBleed(target: Entity, stacks: number) {
+  const current = (target as any).bleedStacks || 0;
+  (target as any).bleedStacks = Math.min(HARD_CAPS.maxBleedStacks, current + stacks);
+}
+
+export function applySlow(target: Entity, stacks: number, duration: number = 4000) {
+  const current = (target as any).slowStacks || 0;
+  (target as any).slowStacks = Math.min(HARD_CAPS.maxSlowStacks, current + stacks);
+  (target as any).slowDuration = duration; // Refresh duration
+}
+
+export function applyBrittle(target: Entity, duration: number = 3000) {
+  (target as any).brittle = true;
+  (target as any).brittleDuration = duration;
+}
+
+export function applyExposed(target: Entity, duration: number = 4000) {
+  (target as any).exposed = true;
+  (target as any).exposedDuration = duration;
+}
+
+export function applyStun(target: Entity) {
+  (target as any).stunned = true;
+}
+
+export function updateStatusEffects(state: RunState, dt: number) {
+  // Update durations for status effects
+  state.entities.forEach(e => {
+    if (!e.alive) return;
+
+    // Slow
+    if ((e as any).slowDuration !== undefined) {
+      (e as any).slowDuration -= dt * 1000;
+      if ((e as any).slowDuration <= 0) {
+        (e as any).slowStacks = 0;
+        (e as any).slowDuration = undefined;
+      }
+    }
+
+    // Brittle
+    if ((e as any).brittleDuration !== undefined) {
+      (e as any).brittleDuration -= dt * 1000;
+      if ((e as any).brittleDuration <= 0) {
+        (e as any).brittle = false;
+        (e as any).brittleDuration = undefined;
+      }
+    }
+
+    // Exposed
+    if ((e as any).exposedDuration !== undefined) {
+      (e as any).exposedDuration -= dt * 1000;
+      if ((e as any).exposedDuration <= 0) {
+        (e as any).exposed = false;
+        (e as any).exposedDuration = undefined;
+      }
+    }
+
+    // Stun clears at start of turn (handled elsewhere)
   });
 }
 

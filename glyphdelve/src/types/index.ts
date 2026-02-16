@@ -8,7 +8,9 @@ export type Tag =
   | 'AOE' | 'DOT' | 'Heal' | 'Shield' | 'Transform'
   | 'Melee' | 'Ranged' | 'Projectile' | 'Aura' | 'Totem'
   | 'OnHit' | 'OnKill' | 'OnDeath' | 'OnDamageTaken' | 'OnSummon'
-  | 'Cooldown' | 'Channel' | 'Passive' | 'Buff' | 'Debuff';
+  | 'Cooldown' | 'Channel' | 'Passive' | 'Buff' | 'Debuff'
+  | 'OnMove' | 'OnAttack' | 'OnTransform' | 'OnDebuffApplied' | 'OnAreaDamage'
+  | 'Movement' | 'Attack' | 'Utility' | 'Defensive' | 'Modifier';
 
 export type Rarity = 'Common' | 'Uncommon' | 'Rare' | 'Relic';
 
@@ -184,6 +186,14 @@ export interface Vec2 {
   y: number;
 }
 
+// --- Status Effects ---
+export interface StatusEffect {
+  type: 'bleed' | 'slow' | 'stun' | 'brittle' | 'exposed' | 'root' | 'weaken' | 'poison';
+  stacks?: number;
+  duration?: number;
+  icon?: string;
+}
+
 export interface Entity {
   id: string;
   type: 'player' | 'enemy' | 'summon' | 'projectile' | 'hazard';
@@ -197,6 +207,15 @@ export interface Entity {
   tags: Tag[];
   alive: boolean;
   invulnMs: number;
+  // Status effects
+  bleedStacks?: number;
+  slowStacks?: number;
+  slowDuration?: number;
+  stunned?: boolean;
+  brittle?: boolean;
+  brittleDuration?: number;
+  exposed?: boolean;
+  exposedDuration?: number;
   flashMs: number;
   deathAnimMs: number;
   animState: 'idle' | 'move' | 'attack' | 'hit' | 'death';
@@ -402,6 +421,8 @@ export const HARD_CAPS = {
   maxMoveSpeedMult: 1.2,   // +120% = 2.2x base
   maxAttackSpeedMult: 1.0,  // +100% = 2.0x base
   maxPoisonStacks: 12,
+  maxBleedStacks: 15,
+  maxSlowStacks: 3,
   maxAuraRadiusMult: 0.8,   // +80%
   maxDamageReduction: 0.7,  // 70%
   maxTriggerChainDepth: 4,
