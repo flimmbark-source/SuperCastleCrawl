@@ -10,7 +10,8 @@ export type Tag =
   | 'OnHit' | 'OnKill' | 'OnDeath' | 'OnDamageTaken' | 'OnSummon'
   | 'Cooldown' | 'Channel' | 'Passive' | 'Buff' | 'Debuff'
   | 'OnMove' | 'OnAttack' | 'OnTransform' | 'OnDebuffApplied' | 'OnAreaDamage'
-  | 'Movement' | 'Attack' | 'Utility' | 'Defensive' | 'Modifier';
+  | 'Movement' | 'Attack' | 'Utility' | 'Defensive' | 'Modifier'
+  | 'Hazard' | 'Splash' | 'Trample';
 
 export type Rarity = 'Common' | 'Uncommon' | 'Rare' | 'Relic';
 
@@ -302,6 +303,8 @@ export interface ProjectileEntity extends Entity {
   maxLifetime: number;
   hitEntities: Set<string>;
   aoeOnImpact?: number;
+  splashRadius?: number;
+  splashDamage?: number;
 }
 
 export interface HazardEntity extends Entity {
@@ -369,7 +372,7 @@ export interface RunState {
 
 export interface CombatLogEntry {
   timestamp: number;
-  type: 'damage' | 'heal' | 'kill' | 'trigger' | 'summon' | 'drop' | 'levelup' | 'meld';
+  type: 'damage' | 'heal' | 'kill' | 'trigger' | 'summon' | 'drop' | 'levelup' | 'meld' | 'attack';
   source: string;
   target?: string;
   value?: number;
@@ -456,7 +459,7 @@ export const DROP_RATES = {
   boss: { item: 1.0, rareRelic: 0.35, essence: 1.0 },
   pityThreshold: 10,
   pityItemChance: 0.35,
-} as const;
+};
 
 // --- Meld Costs ---
 export const MELD_COSTS = {

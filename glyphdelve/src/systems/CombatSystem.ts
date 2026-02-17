@@ -24,9 +24,12 @@ export function dirTo(from: Vec2, to: Vec2): Vec2 {
 
 // --- Trigger chain tracking ---
 interface TriggerContext {
-  depth: number;
-  triggerCounts: Map<string, number>;
-  spawnCount: number;
+  depth?: number;
+  triggerCounts?: Map<string, number>;
+  spawnCount?: number;
+  rng?: unknown;
+  renderer?: unknown;
+  now?: number;
 }
 
 function newTriggerContext(): TriggerContext {
@@ -34,19 +37,22 @@ function newTriggerContext(): TriggerContext {
 }
 
 function canTrigger(ctx: TriggerContext, triggerId: string): boolean {
-  if (ctx.depth >= HARD_CAPS.maxTriggerChainDepth) return false;
-  const count = ctx.triggerCounts.get(triggerId) || 0;
+  const depth = ctx.depth ?? 0;
+  const triggerCounts = ctx.triggerCounts ?? new Map<string, number>();
+  if (depth >= HARD_CAPS.maxTriggerChainDepth) return false;
+  const count = triggerCounts.get(triggerId) || 0;
   if (count >= HARD_CAPS.maxSameTriggerRepeats) return false;
   return true;
 }
 
 function recordTrigger(ctx: TriggerContext, triggerId: string) {
-  ctx.depth++;
+  ctx.depth = (ctx.depth ?? 0) + 1;
+  if (!ctx.triggerCounts) ctx.triggerCounts = new Map();
   ctx.triggerCounts.set(triggerId, (ctx.triggerCounts.get(triggerId) || 0) + 1);
 }
 
 function canSpawn(ctx: TriggerContext): boolean {
-  return ctx.spawnCount < HARD_CAPS.maxSpawnedFromEvent;
+  return (ctx.spawnCount ?? 0) < HARD_CAPS.maxSpawnedFromEvent;
 }
 
 // --- Combat Resolution ---
@@ -203,8 +209,8 @@ export function processDamage(
   }
 
   // Record trigger depth
-  if (ctx.depth > 0) {
-    state.triggerChainDepths.push(ctx.depth);
+  if ((ctx.depth ?? 0) > 0) {
+    state.triggerChainDepths.push(ctx.depth ?? 0);
   }
 
   return { finalDamage, dodged: false, killed, blocked: false };
