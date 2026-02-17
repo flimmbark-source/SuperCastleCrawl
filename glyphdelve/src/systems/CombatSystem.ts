@@ -24,9 +24,12 @@ export function dirTo(from: Vec2, to: Vec2): Vec2 {
 
 // --- Trigger chain tracking ---
 interface TriggerContext {
-  depth: number;
-  triggerCounts: Map<string, number>;
-  spawnCount: number;
+  depth?: number;
+  triggerCounts?: Map<string, number>;
+  spawnCount?: number;
+  rng?: unknown;
+  renderer?: unknown;
+  now?: number;
 }
 
 function newTriggerContext(): TriggerContext {
@@ -34,19 +37,22 @@ function newTriggerContext(): TriggerContext {
 }
 
 function canTrigger(ctx: TriggerContext, triggerId: string): boolean {
-  if (ctx.depth >= HARD_CAPS.maxTriggerChainDepth) return false;
-  const count = ctx.triggerCounts.get(triggerId) || 0;
+  const depth = ctx.depth ?? 0;
+  const triggerCounts = ctx.triggerCounts ?? new Map<string, number>();
+  if (depth >= HARD_CAPS.maxTriggerChainDepth) return false;
+  const count = triggerCounts.get(triggerId) || 0;
   if (count >= HARD_CAPS.maxSameTriggerRepeats) return false;
   return true;
 }
 
 function recordTrigger(ctx: TriggerContext, triggerId: string) {
-  ctx.depth++;
+  ctx.depth = (ctx.depth ?? 0) + 1;
+  if (!ctx.triggerCounts) ctx.triggerCounts = new Map();
   ctx.triggerCounts.set(triggerId, (ctx.triggerCounts.get(triggerId) || 0) + 1);
 }
 
 function canSpawn(ctx: TriggerContext): boolean {
-  return ctx.spawnCount < HARD_CAPS.maxSpawnedFromEvent;
+  return (ctx.spawnCount ?? 0) < HARD_CAPS.maxSpawnedFromEvent;
 }
 
 // --- Combat Resolution ---
@@ -104,6 +110,30 @@ export function processDamage(
   if (attacker.faction === 'player' && attacker.type === 'summon') {
     const hiveMind = state.player.items.find(i => i.def.id === 'hive_mind_crown');
     if (hiveMind) mitigated *= 1.10;
+
+    // Packlord's Coronet: marked targets take +30% from summons
+    const packlord = state.player.items.find(i => i.def.id === 'packlord_coronet');
+    if (packlord && (target as any)._packlordMark) {
+      mitigated *= 1.30;
+    }
+  }
+
+  // Check for Brittle status (consume on hit)
+  if ((target as any).brittle) {
+    mitigated *= 1.50;
+    (target as any).brittle = false;
+    (target as any).brittleDuration = undefined;
+    addCombatLog(state, {
+      type: 'trigger',
+      source: 'brittle',
+      target: target.id,
+      details: `Brittle consumed on ${target.id} (+50% damage)`,
+    });
+  }
+
+  // Check for Exposed status (does not consume)
+  if ((target as any).exposed) {
+    mitigated *= 1.25;
   }
 
   // 4. Damage application
@@ -179,8 +209,8 @@ export function processDamage(
   }
 
   // Record trigger depth
-  if (ctx.depth > 0) {
-    state.triggerChainDepths.push(ctx.depth);
+  if ((ctx.depth ?? 0) > 0) {
+    state.triggerChainDepths.push(ctx.depth ?? 0);
   }
 
   return { finalDamage, dodged: false, killed, blocked: false };
@@ -249,6 +279,39 @@ function processOnDamageTakenTriggers(
         }
       }
     }
+
+    // Thorn Mantle buff (if active)
+    if ((player as any)._thornMantleBuff && (player as any)._thornMantleBuff > 0) {
+      const thornDamage = (player as any)._thornMantleDamage || 8;
+      const thornRadius = (player as any)._thornMantleRadius || 40;
+      const hitTargets: Entity[] = [];
+
+      // Deal AoE damage around player
+      state.entities.forEach(e => {
+        if (e.alive && e.faction === 'enemy' && dist(e.pos, player.pos) < thornRadius) {
+          const dmgEvent = {
+            attackerId: 'player',
+            targetId: e.id,
+            baseDamage: thornDamage * player.damageScalar,
+            damageType: 'physical',
+            tags: ['AOE', 'OnDamageTaken'] as any,
+            isProjectile: false,
+          };
+          processDamage(dmgEvent, state, ctx);
+          hitTargets.push(e);
+        }
+      });
+
+      if (hitTargets.length > 0) {
+        addCombatLog(state, {
+          type: 'trigger',
+          source: 'thorn_mantle',
+          details: `Thorn Mantle retaliated against ${hitTargets.length} enemies`,
+        });
+        // Trigger OnAreaDamage effects
+        processOnAreaDamageTriggers(player, hitTargets, thornDamage, state, ctx);
+      }
+    }
   }
 }
 
@@ -273,11 +336,14 @@ function processOnHitTriggers(
 
   if (attacker.type === 'player') {
     const player = attacker as PlayerEntity;
+
     // Check for poison application items
     const venomweave = player.items.find(i => i.def.id === 'venomweave_cloak');
     if (venomweave && target.type === 'enemy') {
       const enemy = target as EnemyEntity;
       enemy.poisonStacks = Math.min(HARD_CAPS.maxPoisonStacks, enemy.poisonStacks + 1);
+      // Trigger OnDebuffApplied
+      processOnDebuffAppliedTriggers(player, target, 'poison', state, ctx);
     }
 
     const sporeSac = player.items.find(i => i.def.id === 'spore_sac');
@@ -294,6 +360,81 @@ function processOnHitTriggers(
           details: `Spore Sac detonated on ${enemy.id} (30)` ,
         });
       }
+    }
+
+    // Brittle Fury: Apply Brittle on melee hits
+    const brittleFury = player.passives.find(p => p.def.id === 'brittle_fury');
+    if (brittleFury && brittleFury.active && target.type === 'enemy') {
+      // Check if this was a melee attack (TODO: need to track attack type)
+      const isMelee = (damage as any)._isMelee || false;
+      if (isMelee) {
+        applyBrittle(target, 3000);
+        addCombatLog(state, {
+          type: 'trigger',
+          source: 'brittle_fury',
+          target: target.id,
+          details: `Applied Brittle to ${target.id}`,
+        });
+        // Trigger OnDebuffApplied
+        processOnDebuffAppliedTriggers(player, target, 'brittle', state, ctx);
+      }
+    }
+  }
+}
+
+// --- New Trigger Processing Functions ---
+function processOnDebuffAppliedTriggers(
+  attacker: PlayerEntity, target: Entity, debuffType: string,
+  state: RunState, ctx: TriggerContext
+) {
+  // Debilitating Presence: Apply 1 Slow when any debuff is applied
+  const debilitatingPresence = attacker.passives.find(p => p.def.id === 'debilitating_presence');
+  if (debilitatingPresence && debilitatingPresence.active) {
+    applySlow(target, 1, 4000);
+    addCombatLog(state, {
+      type: 'trigger',
+      source: 'debilitating_presence',
+      target: target.id,
+      details: `Applied 1 Slow to ${target.id}`,
+    });
+  }
+
+  // Packlord's Coronet: Mark target for summons
+  const packlord = attacker.items.find(i => i.def.id === 'packlord_coronet');
+  if (packlord) {
+    (target as any)._packlordMark = 6000; // 6s duration (ms)
+    addCombatLog(state, {
+      type: 'trigger',
+      source: 'packlord_coronet',
+      target: target.id,
+      details: `Marked ${target.id} for summons (+30% damage)`,
+    });
+  }
+}
+
+export function processOnAreaDamageTriggers(
+  attacker: Entity, targets: Entity[], damage: number,
+  state: RunState, ctx: TriggerContext
+) {
+  if (attacker.type === 'player') {
+    const player = attacker as PlayerEntity;
+
+    // Bleeding Wounds: Apply 1 Bleed to all enemies hit by AoE
+    const bleedingWounds = player.passives.find(p => p.def.id === 'bleeding_wounds');
+    if (bleedingWounds && bleedingWounds.active) {
+      targets.forEach(target => {
+        if (target.type === 'enemy') {
+          applyBleed(target, 1);
+          addCombatLog(state, {
+            type: 'trigger',
+            source: 'bleeding_wounds',
+            target: target.id,
+            details: `Applied 1 Bleed to ${target.id}`,
+          });
+          // Trigger OnDebuffApplied
+          processOnDebuffAppliedTriggers(player, target, 'bleed', state, ctx);
+        }
+      });
     }
   }
 }
@@ -393,6 +534,110 @@ export function processPoison(state: RunState, dt: number) {
   });
 }
 
+// --- Status Effect Processing ---
+export function processBleed(state: RunState) {
+  // Bleed triggers at start of player turn
+  state.entities.forEach(e => {
+    if (!e.alive) return;
+    const bleedStacks = (e as any).bleedStacks || 0;
+    if (bleedStacks > 0) {
+      const bleedDmg = bleedStacks;
+      e.hp -= bleedDmg;
+      e.flashMs = 150;
+
+      addCombatLog(state, {
+        type: 'damage',
+        source: 'bleed',
+        target: e.id,
+        value: bleedDmg,
+        details: `${e.id} took ${bleedDmg} bleed damage`,
+      });
+
+      // Reduce bleed by 1
+      (e as any).bleedStacks = Math.max(0, bleedStacks - 1);
+
+      if (e.hp <= 0) {
+        e.hp = 0;
+        e.alive = false;
+        e.animState = 'death';
+        e.deathAnimMs = 500;
+
+        if (e.type === 'enemy') {
+          addCombatLog(state, {
+            type: 'kill',
+            source: 'bleed',
+            target: e.id,
+            details: `${e.id} killed by bleed`,
+          });
+          const key = 'DoT';
+          state.deathCauseTaxonomy.set(key, (state.deathCauseTaxonomy.get(key) || 0) + 1);
+        }
+      }
+    }
+  });
+}
+
+export function applyBleed(target: Entity, stacks: number) {
+  const current = (target as any).bleedStacks || 0;
+  (target as any).bleedStacks = Math.min(HARD_CAPS.maxBleedStacks, current + stacks);
+}
+
+export function applySlow(target: Entity, stacks: number, duration: number = 4000) {
+  const current = (target as any).slowStacks || 0;
+  (target as any).slowStacks = Math.min(HARD_CAPS.maxSlowStacks, current + stacks);
+  (target as any).slowDuration = duration; // Refresh duration
+}
+
+export function applyBrittle(target: Entity, duration: number = 3000) {
+  (target as any).brittle = true;
+  (target as any).brittleDuration = duration;
+}
+
+export function applyExposed(target: Entity, duration: number = 4000) {
+  (target as any).exposed = true;
+  (target as any).exposedDuration = duration;
+}
+
+export function applyStun(target: Entity) {
+  (target as any).stunned = true;
+}
+
+export function updateStatusEffects(state: RunState, dt: number) {
+  // Update durations for status effects
+  state.entities.forEach(e => {
+    if (!e.alive) return;
+
+    // Slow
+    if ((e as any).slowDuration !== undefined) {
+      (e as any).slowDuration -= dt * 1000;
+      if ((e as any).slowDuration <= 0) {
+        (e as any).slowStacks = 0;
+        (e as any).slowDuration = undefined;
+      }
+    }
+
+    // Brittle
+    if ((e as any).brittleDuration !== undefined) {
+      (e as any).brittleDuration -= dt * 1000;
+      if ((e as any).brittleDuration <= 0) {
+        (e as any).brittle = false;
+        (e as any).brittleDuration = undefined;
+      }
+    }
+
+    // Exposed
+    if ((e as any).exposedDuration !== undefined) {
+      (e as any).exposedDuration -= dt * 1000;
+      if ((e as any).exposedDuration <= 0) {
+        (e as any).exposed = false;
+        (e as any).exposedDuration = undefined;
+      }
+    }
+
+    // Stun clears at start of turn (handled elsewhere)
+  });
+}
+
 // --- Projectile updates ---
 export function updateProjectiles(state: RunState, dt: number) {
   state.entities.forEach(e => {
@@ -403,6 +648,39 @@ export function updateProjectiles(state: RunState, dt: number) {
     proj.lifetime -= dt;
     if (proj.lifetime <= 0) {
       proj.alive = false;
+
+      // Handle splash damage on expire (Bark Missile)
+      if ((proj as any).splashRadius && (proj as any).splashDamage) {
+        const splashRadius = (proj as any).splashRadius;
+        const splashDamage = (proj as any).splashDamage;
+        const hitTargets: Entity[] = [];
+
+        state.entities.forEach(target => {
+          if (target.alive && target.faction === 'enemy' && dist(proj.pos, target.pos) < splashRadius) {
+            processDamage({
+              attackerId: proj.ownerId,
+              targetId: target.id,
+              baseDamage: splashDamage,
+              damageType: 'physical',
+              tags: ['AOE', 'Splash'],
+              isProjectile: false,
+            }, state);
+            hitTargets.push(target);
+          }
+        });
+
+        if (hitTargets.length > 0) {
+          // Trigger OnAreaDamage effects (like Bleeding Wounds)
+          const owner = state.entities.find(e => e.id === proj.ownerId) || state.player;
+          if (owner.type === 'player') {
+            processOnAreaDamageTriggers(owner as PlayerEntity, hitTargets, splashDamage, state, {
+              rng: { chance: () => false } as any,
+              renderer: undefined,
+              now: Date.now()
+            });
+          }
+        }
+      }
       return;
     }
 

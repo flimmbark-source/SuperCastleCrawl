@@ -54,6 +54,7 @@ export class Renderer {
   private shakeOffset: Vec2 = { x: 0, y: 0 };
   private shakeTimer = 0;
   private particles: Particle[] = [];
+  private playerVisualPos: Vec2 | null = null;
 
   constructor(canvas: HTMLCanvasElement, config: RenderConfig) {
     this.ctx = canvas.getContext('2d')!;
@@ -81,9 +82,11 @@ export class Renderer {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.width, this.height);
 
+    const playerRenderPos = this.getPlayerRenderPos(state.player, interp);
+
     // Update camera to follow player
-    const targetCamX = state.player.pos.x - this.width / 2;
-    const targetCamY = state.player.pos.y - this.height / 2;
+    const targetCamX = playerRenderPos.x - this.width / 2;
+    const targetCamY = playerRenderPos.y - this.height / 2;
     this.camera.x += (targetCamX - this.camera.x) * 0.1;
     this.camera.y += (targetCamY - this.camera.y) * 0.1;
 
@@ -125,12 +128,29 @@ export class Renderer {
     });
 
     // Draw player
-    if (state.player.alive) this.drawPlayer(state.player);
+    if (state.player.alive) this.drawPlayer(state.player, playerRenderPos);
 
     // Draw particles
     this.updateAndDrawParticles(ctx);
 
     ctx.restore();
+  }
+
+  private getPlayerRenderPos(player: PlayerEntity, interp: number): Vec2 {
+    if (this.config.reducedMotion) {
+      this.playerVisualPos = { ...player.pos };
+      return player.pos;
+    }
+
+    if (!this.playerVisualPos) {
+      this.playerVisualPos = { ...player.pos };
+    }
+
+    const smoothing = 0.22 + interp * 0.25;
+    this.playerVisualPos.x += (player.pos.x - this.playerVisualPos.x) * smoothing;
+    this.playerVisualPos.y += (player.pos.y - this.playerVisualPos.y) * smoothing;
+
+    return this.playerVisualPos;
   }
 
   private drawFloor(state: RunState) {
@@ -184,9 +204,9 @@ export class Renderer {
     }
   }
 
-  private drawPlayer(player: PlayerEntity) {
+  private drawPlayer(player: PlayerEntity, renderPos: Vec2) {
     const ctx = this.ctx;
-    const { x, y } = player.pos;
+    const { x, y } = renderPos;
 
     // Flash on hit
     if (player.flashMs > 0) {
