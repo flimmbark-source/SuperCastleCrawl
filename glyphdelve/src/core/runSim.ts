@@ -92,6 +92,8 @@ export interface SimOptions {
   offerPolicy?: OfferPolicy;
   routePolicy?: RoutePolicy;
   maxRooms?: number;
+  /** Set false to measure the game with skills ignored entirely. */
+  useSkills?: boolean;
 }
 
 export function simulateRun(seed: number, opts: SimOptions = {}): RunRecord {
@@ -179,7 +181,7 @@ export function simulateRun(seed: number, opts: SimOptions = {}): RunRecord {
     };
 
     const before = engine.stats.kills;
-    const result = botPlayRoom(engine, 600);
+    const result = botPlayRoom(engine, 600, { useSkills: opts.useSkills });
     void before;
     harvest(engine.ctx.actors.filter(a => !a.alive && a.faction === 'enemy'));
 

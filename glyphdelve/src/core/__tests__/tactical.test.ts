@@ -258,9 +258,9 @@ describe('passives fire', () => {
     const { engine, meta } = makeEngine(71);
     givePassive(meta, 'bleeding_wounds');
     giveSkill(meta, 'thornburst');
-    engine.startRoom('combat', 1, ['skeleton_chaser', 'skeleton_chaser'], false);
+    engine.startRoom('combat', 1, ['stone_golem', 'stone_golem'], false);
 
-    // Put both enemies next to the player so Thornburst definitely catches them.
+    // Tough enough to survive the blast: Bleed cannot be applied to a corpse.
     const es = livingEnemies(engine.ctx);
     es[0].tile = { x: engine.player.tile.x + 1, y: engine.player.tile.y };
     es[1].tile = { x: engine.player.tile.x, y: engine.player.tile.y + 1 };

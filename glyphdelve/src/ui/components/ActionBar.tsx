@@ -21,7 +21,7 @@ const HOTKEY: Record<string, string> = {
   attack: 'CLK',
 };
 
-export const ActionBar: React.FC<Props> = ({ actions, selectedId, form, onAction }) => {
+const ActionBarInner: React.FC<Props> = ({ actions, selectedId, form, onAction }) => {
   const [hovered, setHovered] = useState<PlayerActionOption | null>(null);
   const [focusRing, setFocusRing] = useState<string | null>(null);
   let skillIndex = 0;
@@ -179,3 +179,6 @@ const hint: React.CSSProperties = {
   display: 'flex', gap: S.lg, alignItems: 'center',
   fontFamily: FONT.ui, pointerEvents: 'none',
 };
+
+/** Memoised: these panels re-render only when their own props change. */
+export const ActionBar = React.memo(ActionBarInner);

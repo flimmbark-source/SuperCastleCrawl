@@ -85,6 +85,8 @@ export class Game {
 
   private pendingLevelUps = 0;
   private hoverTile: Tile | null = null;
+  private overlayCache: RenderOverlay | null = null;
+  private overlayKey = '';
   private selectedActionId: string | null = null;
   private showMoveHints = true;
 
@@ -155,15 +157,28 @@ export class Game {
     const dt = Math.min(64, now - this.lastFrame);
     this.lastFrame = now;
 
-    if (this.phase === 'combat' && this.engine && this.renderer) {
-      this.renderer.render(this.engine.snapshot(), this.buildOverlay(), dt);
-    } else if (this.renderer && this.engine && this.phase === 'levelup') {
-      this.renderer.render(this.engine.snapshot(), this.buildOverlay(), dt);
+    const drawable = this.engine && this.renderer &&
+      (this.phase === 'combat' || this.phase === 'levelup');
+    if (!drawable) return;
+
+    // Dev-only probe so the renderer's own cost can be measured apart from
+    // browser scheduling noise, which frame deltas cannot distinguish.
+    const t0 = import.meta.env.DEV ? performance.now() : 0;
+    this.renderer!.render(this.engine!.snapshot(), this.buildOverlay(), dt);
+    if (import.meta.env.DEV) {
+      const w = window as unknown as { __renderMs?: number[] };
+      (w.__renderMs ??= []).push(performance.now() - t0);
+      if (w.__renderMs.length > 2000) w.__renderMs.shift();
     }
   };
 
   private buildOverlay(): RenderOverlay {
     const e = this.engine!;
+    // Cheap identity for "nothing the overlay depends on has changed".
+    const key = `${e.ctx.clock}|${this.hoverTile?.x ?? -1},${this.hoverTile?.y ?? -1}` +
+      `|${this.selectedActionId ?? ''}|${this.showMoveHints}|${e.form}`;
+    if (key === this.overlayKey && this.overlayCache) return this.overlayCache;
+    this.overlayKey = key;
     const sel = this.selectedActionId;
     let preview: Tile[] = [];
 
@@ -173,7 +188,7 @@ export class Game {
       }
     }
 
-    return {
+    this.overlayCache = {
       hoverTile: this.hoverTile,
       previewTiles: preview,
       moveOptions: this.showMoveHints ? e.moveOptions() : [],
@@ -181,6 +196,7 @@ export class Game {
       threat: e.threatenedTiles(),
       showMoveHints: this.showMoveHints,
     };
+    return this.overlayCache;
   }
 
   // --- Input ----------------------------------------------------

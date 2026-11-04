@@ -20,7 +20,7 @@ interface Props {
 
 const PRESSURE_WINDOW = 18;
 
-export const TurnOrderRail: React.FC<Props> = ({
+const TurnOrderRailInner: React.FC<Props> = ({
   entries, pendingCost, pressure, beatsToPressure,
 }) => (
   <div style={wrap}>
@@ -135,3 +135,6 @@ const name: React.CSSProperties = {
 const pressureBox: React.CSSProperties = {
   marginTop: S.sm + 2, paddingTop: S.sm + 2, borderTop: `1px solid ${T.line}`,
 };
+
+/** Memoised: these panels re-render only when their own props change. */
+export const TurnOrderRail = React.memo(TurnOrderRailInner);

@@ -6,6 +6,7 @@ import { ENGINE_IMPLEMENTED_IDS } from '../tactical';
 import { druidItems } from '../../data/items';
 import { druidPassives } from '../../data/passives';
 import { druidSkills } from '../../data/skills';
+import { defaultBeatCost } from '../model';
 
 /**
  * The original build shipped 8 items, 5 passives and a skill that were offered
@@ -51,11 +52,38 @@ describe('content coverage', () => {
   it('keeps every piece of content honest about what it does', () => {
     // Descriptions are the player's only contract with the systems. Anything
     // still describing the pre-rewrite real-time world would be a lie.
-    const stale = /\b\d+(\.\d+)?s\b|seconds?\b|move speed|attack speed|cooldown reduction/i;
+    // Skills are included deliberately: leaving them out of this check is how
+    // a batch of mismatched skill descriptions survived the rewrite.
+    const stale = /\b\d+(\.\d+)?\s*s\b|\b\d+(\.\d+)?\s*seconds?\b|move speed|attack speed|cooldown reduction/i;
     const offenders: string[] = [];
-    [...druidItems, ...druidPassives].forEach(c => {
+    const all = [
+      ...druidItems, ...druidPassives, ...druidSkills,
+      ...druidSkills.flatMap(sk => sk.upgrades ?? []),
+    ];
+    all.forEach(c => {
       if (stale.test(c.triggerSentence)) offenders.push(`${c.id}: ${c.triggerSentence}`);
     });
     expect(offenders, `content still described in real-time terms:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  it('keeps damaging skills worth their Beats', () => {
+    // Measured before this guard: every damaging skill was worse per Beat
+    // than a plain attack, so the whole skill system was a trap. A skill is
+    // allowed to be weak per target only if its value is breadth or control.
+    const BREADTH_OR_CONTROL = new Set([
+      'summon_briar_wolf', 'summon_briar_wolf_alpha', // ongoing damage
+      'thorn_mantle', 'totemic_ward',                 // zone control
+      'spirit_swarm',                                 // hits every visible target
+      'entangling_vines',                             // Root denies a turn
+      'roaring_sprint',                               // rider on Move
+    ]);
+    const basicPerBeat = 11 / 2; // Caster bolt at level 1
+    const weak: string[] = [];
+    druidSkills.forEach(sk => {
+      if (!sk.damage || BREADTH_OR_CONTROL.has(sk.id)) return;
+      const perBeat = sk.damage / defaultBeatCost(sk.cooldown);
+      if (perBeat < basicPerBeat) weak.push(`${sk.id} ${perBeat.toFixed(1)}/Beat`);
+    });
+    expect(weak, `skills that lose to a basic attack: ${weak.join(', ')}`).toEqual([]);
   });
 });

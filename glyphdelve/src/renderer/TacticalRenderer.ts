@@ -115,6 +115,12 @@ export class TacticalRenderer {
   private terrainCanvas: HTMLCanvasElement | null = null;
   private terrainKey = '';
 
+  // Full-screen gradients only change on resize; rebuilding them per frame
+  // was the largest avoidable cost in the render loop.
+  private ambientGrad: CanvasGradient | null = null;
+  private vignetteGrad: CanvasGradient | null = null;
+  private gradKey = '';
+
   constructor(canvas: HTMLCanvasElement, cfg: RenderConfig) {
     this.canvas = canvas;
     const ctx = canvas.getContext('2d');
@@ -178,9 +184,10 @@ export class TacticalRenderer {
     const ctx = this.ctx;
     this.time += dtMs / 1000;
 
+    this.ensureGradients(cssW, cssH, grid);
     ctx.fillStyle = C.void;
     ctx.fillRect(0, 0, cssW, cssH);
-    this.drawAmbient(cssW, cssH, grid);
+    this.drawAmbient(cssW, cssH);
 
     ctx.save();
     if (this.shake > 0) {
@@ -218,34 +225,46 @@ export class TacticalRenderer {
 
   // --- Atmosphere -----------------------------------------------
 
-  private drawAmbient(cssW: number, cssH: number, grid: Grid): void {
+  private ensureGradients(cssW: number, cssH: number, grid: Grid): void {
+    const key = `${cssW}x${cssH}:${this.originX},${this.originY},${this.tileSize},${grid.w},${grid.h}`;
+    if (key === this.gradKey && this.ambientGrad && this.vignetteGrad) return;
+    this.gradKey = key;
     const ctx = this.ctx;
+
     const cx = this.originX + (grid.w * this.tileSize) / 2;
     const cy = this.originY + (grid.h * this.tileSize) / 2;
     const r = Math.max(grid.w, grid.h) * this.tileSize * 0.75;
-    const g = ctx.createRadialGradient(cx, cy, r * 0.1, cx, cy, r);
-    g.addColorStop(0, 'rgba(50, 64, 96, 0.3)');
-    g.addColorStop(1, 'rgba(8, 10, 16, 0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, cssW, cssH);
-  }
+    const a = ctx.createRadialGradient(cx, cy, r * 0.1, cx, cy, r);
+    a.addColorStop(0, 'rgba(50, 64, 96, 0.3)');
+    a.addColorStop(1, 'rgba(8, 10, 16, 0)');
+    this.ambientGrad = a;
 
-  private drawVignette(cssW: number, cssH: number): void {
-    const ctx = this.ctx;
-    const g = ctx.createRadialGradient(
+    const v = ctx.createRadialGradient(
       cssW / 2, cssH / 2, Math.min(cssW, cssH) * 0.34,
       cssW / 2, cssH / 2, Math.max(cssW, cssH) * 0.78,
     );
-    g.addColorStop(0, 'rgba(0,0,0,0)');
-    g.addColorStop(1, 'rgba(0,0,0,0.55)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, cssW, cssH);
+    v.addColorStop(0, 'rgba(0,0,0,0)');
+    v.addColorStop(1, 'rgba(0,0,0,0.55)');
+    this.vignetteGrad = v;
+  }
+
+  private drawAmbient(cssW: number, cssH: number): void {
+    if (!this.ambientGrad) return;
+    this.ctx.fillStyle = this.ambientGrad;
+    this.ctx.fillRect(0, 0, cssW, cssH);
+  }
+
+  private drawVignette(cssW: number, cssH: number): void {
+    if (!this.vignetteGrad) return;
+    this.ctx.fillStyle = this.vignetteGrad;
+    this.ctx.fillRect(0, 0, cssW, cssH);
   }
 
   // --- Terrain (cached) -----------------------------------------
 
   private blitTerrain(grid: Grid): void {
-    const key = `${grid.w}x${grid.h}:${this.tileSize}:${this.cfg.colorblindMode}:${grid.toArray().join('')}`;
+    // O(1) key: the grid versions itself, so this costs nothing per frame.
+    const key = `${grid.w}x${grid.h}:${this.tileSize}:${this.cfg.colorblindMode}:${grid.version}`;
     if (key !== this.terrainKey || !this.terrainCanvas) {
       this.terrainKey = key;
       this.terrainCanvas = this.rasterTerrain(grid);

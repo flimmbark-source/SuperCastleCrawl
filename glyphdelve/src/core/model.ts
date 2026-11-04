@@ -24,10 +24,18 @@ export const ACTION_COSTS = {
   transform: 2,
 } as const;
 
-/** Fallback when a skill definition has no explicit beatCost authored. */
+/**
+ * Beat cost of a skill, derived from its authored cooldown.
+ *
+ * The range is deliberately narrow (2-5). In a game where spending Beats is
+ * literally handing the enemies turns, an 8-Beat action is almost never the
+ * right buy against a 2-Beat attack — measured: a bot given skills at the old
+ * wider costs performed *worse* than one that ignored them entirely. Cooldown,
+ * not Beat cost, is what keeps strong skills in check.
+ */
 export function defaultBeatCost(legacyCooldownSeconds: number): Beats {
   if (legacyCooldownSeconds <= 0) return 2;
-  return Math.max(2, Math.min(8, Math.round(legacyCooldownSeconds * 0.7) + 1));
+  return Math.max(2, Math.min(5, Math.round(legacyCooldownSeconds * 0.35) + 2));
 }
 
 // --- Intent --------------------------------------------------

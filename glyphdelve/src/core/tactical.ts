@@ -567,6 +567,13 @@ export class TacticalEngine {
     const target = aim ?? this.autoAim(s);
     this.executeSkill(s, target, 1);
 
+    // Repeating Echo: the armed skill resolves a second time at 60% power.
+    if (this.ctx.owned.flags.echoArmed && s.id !== 'repeating_echo') {
+      this.ctx.owned.flags.echoArmed = false;
+      logLine(this.ctx, 'trigger', `${s.name} echoes`, true);
+      this.executeSkill(s, target, 0.6);
+    }
+
     // Echo Seed: a chance to repeat the whole effect at reduced power.
     if (this.ctx.owned.itemIds.has('echo_seed') && this.rng.chance(0.15)) {
       logLine(this.ctx, 'trigger', `Echo Seed repeats ${s.name}`, true);
@@ -691,26 +698,42 @@ export class TacticalEngine {
       }
 
       case 'wild_charge': {
-        // Dash toward the target, trampling everything on the way.
+        // Dash up to 3 tiles, trampling every enemy along the way and ending
+        // on the last free tile of the run.
+        const from = { ...this.player.tile };
         const path = findPath(this.ctx.grid, this.player.tile, target, {
           occupied: new Set(), ignoreOccupiedAtGoal: true,
         });
         const steps = (path ?? []).slice(1, 4);
+        const trampled: Actor[] = [];
+        let landing = from;
+
         for (const st of steps) {
+          if (!this.ctx.grid.isPassable(st.x, st.y)) break;
           const blocker = actorAt(this.ctx, st);
           if (blocker && blocker.faction === 'enemy') {
             dealDamage(this.ctx, {
               attacker: this.player, target: blocker, amount: dmg,
               type: 'physical', tags: ['Melee', 'Physical', 'Trample'],
             });
-            shove(this.ctx, this.player, blocker, stepToward(this.player.tile, st), 1);
-            if (!blocker.alive) this.player.tile = { ...st };
-            break;
+            trampled.push(blocker);
+            shove(this.ctx, this.player, blocker, stepToward(from, st), 1);
+            // Only advance onto the tile if the charge cleared it.
+            if (!blocker.alive || !actorAt(this.ctx, st)) landing = st;
+            continue;
           }
-          if (!this.ctx.grid.isPassable(st.x, st.y)) break;
-          this.player.tile = { ...st };
+          landing = st;
         }
-        fx(this.ctx, { kind: 'shove', from: this.player.tile, to: target, colour: '#ffb74d', lifeMs: 300 });
+
+        this.player.tile = { ...landing };
+        this.player.facing = stepToward(from, landing);
+        fx(this.ctx, { kind: 'shove', from, to: landing, colour: '#ffb74d', lifeMs: 320 });
+        if (trampled.length > 1) {
+          emit(this.ctx, {
+            type: 'OnAreaDamage', attacker: this.player,
+            targets: trampled, damage: dmg, tags: ['Melee', 'Physical', 'Trample'],
+          });
+        }
         return;
       }
 
@@ -723,9 +746,9 @@ export class TacticalEngine {
       }
 
       case 'repeating_echo': {
-        this.ctx.owned.flags.nextSkillBeatDiscount = 2;
+        this.ctx.owned.flags.echoArmed = true;
         this.player.flags.shieldHp = Number(this.player.flags.shieldHp ?? 0) + 8;
-        logLine(this.ctx, 'trigger', 'Repeating Echo: your next skill costs 2 fewer Beats', true);
+        logLine(this.ctx, 'trigger', 'Repeating Echo: your next skill will fire twice', true);
         return;
       }
 

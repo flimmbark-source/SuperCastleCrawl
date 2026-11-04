@@ -51,10 +51,17 @@ const App: React.FC = () => {
   // pointer, so poll it on a light interval rather than on every frame.
   useEffect(() => {
     if (phase !== 'combat') return;
+    let lastKey = '';
     const id = setInterval(() => {
       const g = gameRef.current;
       if (!g) return;
-      setInspect(g.inspect());
+      const next = g.inspect();
+      // Only re-render when the text actually changed: this poll was causing
+      // a full tree render ~11 times a second while nothing moved.
+      const key = next ? `${next.title}|${next.lines.join('|')}` : '';
+      if (key === lastKey) return;
+      lastKey = key;
+      setInspect(next);
     }, 90);
     return () => clearInterval(id);
   }, [phase]);

@@ -23,6 +23,11 @@ export interface BotStepLog {
   enemies: number;
 }
 
+export interface BotOptions {
+  /** Set false to measure the basic-attack floor, for A/B comparison. */
+  useSkills?: boolean;
+}
+
 export interface BotRoomResult {
   outcome: 'cleared' | 'defeat' | 'stalled';
   steps: number;
@@ -34,7 +39,10 @@ export interface BotRoomResult {
 }
 
 /** Play one room to completion. Returns how it went. */
-export function botPlayRoom(engine: TacticalEngine, maxSteps = 400): BotRoomResult {
+export function botPlayRoom(
+  engine: TacticalEngine, maxSteps = 400, opts: BotOptions = {},
+): BotRoomResult {
+  const useSkills = opts.useSkills !== false;
   const hpStart = engine.player.hp;
   const log: BotStepLog[] = [];
   let kills = 0;
@@ -42,7 +50,7 @@ export function botPlayRoom(engine: TacticalEngine, maxSteps = 400): BotRoomResu
 
   while (engine.outcome === 'ongoing' && steps < maxSteps) {
     steps++;
-    const action = chooseAndPerform(engine);
+    const action = chooseAndPerform(engine, useSkills);
     kills += action.killed;
     log.push({
       action: action.label, cost: action.cost,
@@ -63,7 +71,7 @@ export function botPlayRoom(engine: TacticalEngine, maxSteps = 400): BotRoomResu
 
 interface Decision { ok: boolean; label: string; cost: number; killed: number }
 
-function chooseAndPerform(engine: TacticalEngine): Decision {
+function chooseAndPerform(engine: TacticalEngine, useSkills: boolean): Decision {
   const enemies = livingEnemies(engine.ctx);
   const threat = engine.threatenedTiles();
   const standingDamage = threat.get(tileKey(engine.player.tile))?.damage ?? 0;
@@ -80,6 +88,15 @@ function chooseAndPerform(engine: TacticalEngine): Decision {
       const r = engine.performAttack(t);
       if (r.ok) return { ok: true, label: `kill ${e.name}`, cost: r.beatsSpent, killed: r.killed.length };
     }
+  }
+
+  // 1b. Use a skill when it is plainly the better buy. The bot needs this or
+  //     the balance sweep only ever measures the basic-attack floor and says
+  //     nothing about whether the skill economy works.
+  const skill = useSkills ? pickSkill(engine, enemies) : null;
+  if (skill) {
+    const r = engine.performSkill(skill.id, skill.aim);
+    if (r.ok) return { ok: true, label: `skill ${skill.id}`, cost: r.beatsSpent, killed: r.killed.length };
   }
 
   // 2. If something is aimed at this tile and it would really hurt, step off it.
@@ -178,4 +195,58 @@ function nearestDist(from: Tile, tiles: Tile[]): number {
   let best = Infinity;
   for (const t of tiles) best = Math.min(best, tileDist(from, t));
   return best === Infinity ? 0 : best;
+}
+
+/**
+ * Pick a skill worth casting this turn, or null to fall back to attacking.
+ *
+ * Deliberately simple and legible rather than optimal: it only casts when the
+ * case is obvious, which keeps it a fair proxy for a competent human rather
+ * than a solver.
+ */
+function pickSkill(
+  engine: TacticalEngine,
+  enemies: ReturnType<typeof livingEnemies>,
+): { id: string; aim?: Tile } | null {
+  if (!enemies.length) return null;
+  const me = engine.player.tile;
+  const ready = engine.skills.filter(s => s.cooldownRemaining <= 0);
+  if (!ready.length) return null;
+
+  const near = (r: number) => enemies.filter(e => tileDist(me, e.tile) <= r).length;
+  const nearest = enemies.reduce((b, e) => tileDist(me, e.tile) < tileDist(me, b.tile) ? e : b, enemies[0]);
+  const has = (id: string) => ready.some(s => s.id === id);
+  const summons = engine.ctx.actors.filter(a => a.alive && a.kind === 'summon').length;
+
+  // Keep a pack out: a summon pays for itself over the rest of the room.
+  if (summons === 0 && has('summon_briar_wolf')) return { id: 'summon_briar_wolf' };
+  if (summons === 0 && has('summon_briar_wolf_alpha')) return { id: 'summon_briar_wolf_alpha' };
+  if (summons === 0 && has('totemic_ward') && near(4) > 0) return { id: 'totemic_ward' };
+
+  // Crowd control and area damage once a cluster forms.
+  if (near(2) >= 2) {
+    if (has('thornburst')) return { id: 'thornburst' };
+    if (has('roaring_sprint')) return { id: 'roaring_sprint' };
+    if (has('thorn_mantle')) return { id: 'thorn_mantle' };
+  }
+  if (near(5) >= 3 && has('spirit_swarm')) return { id: 'spirit_swarm' };
+  if (near(3) >= 2 && has('entangling_vines')) return { id: 'entangling_vines', aim: nearest.tile };
+
+  // Single-target burst on anything in reach.
+  if (tileDist(me, nearest.tile) <= 5 && has('spore_bolt')) {
+    return { id: 'spore_bolt', aim: nearest.tile };
+  }
+  if (tileDist(me, nearest.tile) <= 3 && tileDist(me, nearest.tile) > 1 && has('wild_charge')) {
+    return { id: 'wild_charge', aim: nearest.tile };
+  }
+
+  // Shift to Bear when the fight is already in melee, back to Caster when not.
+  if (has('bear_form_transform') || has('bear_form_enhanced')) {
+    const id = has('bear_form_enhanced') ? 'bear_form_enhanced' : 'bear_form_transform';
+    if (engine.form === 'caster' && near(1) >= 2) return { id };
+    if (engine.form === 'bear' && near(2) === 0 && enemies.length > 0) return { id };
+  }
+
+  if (has('fungal_link') && summons >= 2) return { id: 'fungal_link' };
+  return null;
 }

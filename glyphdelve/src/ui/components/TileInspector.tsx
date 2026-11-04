@@ -13,7 +13,7 @@ interface Props {
   info: { title: string; lines: string[] } | null;
 }
 
-export const TileInspector: React.FC<Props> = ({ info }) => {
+const TileInspectorInner: React.FC<Props> = ({ info }) => {
   if (!info) {
     return (
       <div style={wrap}>
@@ -59,3 +59,6 @@ const wrap: React.CSSProperties = {
   ...panel, position: 'absolute', bottom: S.md, left: S.md,
   width: 226, padding: `${S.md - 2}px ${S.md}px`, zIndex: 18,
 };
+
+/** Memoised: these panels re-render only when their own props change. */
+export const TileInspector = React.memo(TileInspectorInner);

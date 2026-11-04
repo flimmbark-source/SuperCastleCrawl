@@ -13,7 +13,7 @@ interface Props {
   layoutName?: string;
 }
 
-export const HUD: React.FC<Props> = ({
+const HUDInner: React.FC<Props> = ({
   player, state, roomHp, roomMaxHp, shield = 0, beats, layoutName,
 }) => {
   const hp = Math.ceil(roomHp ?? player.hp);
@@ -101,3 +101,6 @@ const stats: React.CSSProperties = {
 const footer: React.CSSProperties = {
   marginTop: S.sm + 2, paddingTop: S.sm, borderTop: `1px solid ${T.line}`,
 };
+
+/** Memoised: these panels re-render only when their own props change. */
+export const HUD = React.memo(HUDInner);

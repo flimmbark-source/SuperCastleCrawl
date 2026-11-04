@@ -7,6 +7,13 @@ initializeRegistry();
 const count = parseInt(process.argv[2] ?? '60', 10);
 const seeds = Array.from({ length: count }, (_, i) => i + 1);
 
+// A/B: does the skill economy actually pay for its Beats?
+for (const useSkills of [false, true]) {
+  const a = sweep(seeds, { routePolicy: 'greedy_safe', useSkills });
+  console.log(`skills ${useSkills ? 'used   ' : 'ignored'}: win ${a.winRate}% · ` +
+    `level ${a.avgFinalLevel} · beats ${a.avgBeats} · stalls ${a.stalls}`);
+}
+
 for (const policy of ['greedy_safe', 'greedy_power'] as const) {
   const s = sweep(seeds, { routePolicy: policy });
   console.log(`\n=== route policy: ${policy} (${s.runs} runs) ===`);

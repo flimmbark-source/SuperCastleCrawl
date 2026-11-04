@@ -74,12 +74,19 @@ export class Grid {
   readonly w: number;
   readonly h: number;
   private cells: Terrain[];
+  /**
+   * Bumped on every mutation. Lets caches (the renderer's terrain raster)
+   * detect a change in O(1) instead of hashing the whole board each frame.
+   */
+  private _version = 0;
 
   constructor(w: number, h: number, fill: Terrain = 'floor') {
     this.w = w;
     this.h = h;
     this.cells = new Array(w * h).fill(fill);
   }
+
+  get version(): number { return this._version; }
 
   inBounds(x: number, y: number): boolean {
     return x >= 0 && y >= 0 && x < this.w && y < this.h;
@@ -92,7 +99,9 @@ export class Grid {
 
   set(x: number, y: number, t: Terrain): void {
     if (!this.inBounds(x, y)) return;
+    if (this.cells[y * this.w + x] === t) return;
     this.cells[y * this.w + x] = t;
+    this._version++;
   }
 
   info(x: number, y: number): TerrainInfo {
@@ -129,6 +138,7 @@ export class Grid {
   clone(): Grid {
     const g = new Grid(this.w, this.h);
     g.cells = [...this.cells];
+    g._version = this._version;
     return g;
   }
 
