@@ -1,1359 +1,599 @@
+// ============================================================
+// Glyphdelve - Orchestrator
+//
+// Binds the pure tactical core to the browser: input, rendering, and the
+// run-scale phases around a room. It holds no combat rules of its own.
+//
+// Note there is no simulation loop. The game is turn-based, so logic runs
+// only when the player acts; the animation frame is purely visual.
+// ============================================================
+
 import type {
-  RunState, PlayerEntity, Entity, SummonEntity,
-  ProjectileEntity, ActiveSkill, NodeType, Vec2, Tag
+  RunState, AccessibilitySettings, LevelUpOffer, EncounterLootEntry, NodeType,
 } from '../types';
-import { HARD_CAPS, xpForLevel } from '../types';
 import { SeededRNG } from './SeededRNG';
-import { GameLoop } from './GameLoop';
 import { InputManager } from './InputManager';
-import { Renderer } from '../renderer/Renderer';
-import type { RenderConfig } from '../renderer/Renderer';
-import { createRunState, getCurrentNode, advanceNode, addCombatLog, updateBuildTags } from './RunState';
-import { registry } from './DataRegistry';
+import { TacticalRenderer } from '../renderer/TacticalRenderer';
+import type { RenderOverlay } from '../renderer/TacticalRenderer';
 import {
-  processDamage, processPoison, updateProjectiles, updateHazards,
-  updateSummons, cleanupEntities, updateTimers, processRegen,
-  dist, dirTo, findNearestEnemy, processBleed, updateStatusEffects,
-  processOnAreaDamageTriggers
-} from '../systems/CombatSystem';
+  createRunState, getCurrentNode, completeCurrentNode, travelTo,
+  addCombatLog, updateBuildTags, getAvailableNodes,
+} from './RunState';
+import { TacticalEngine } from '../core/tactical';
+import type { TacticalSnapshot } from '../core/tactical';
+import type { Tile } from '../core/grid';
+import { tileKey, tileDist } from '../core/grid';
+import type { Actor, PlayerActionOption } from '../core/model';
 import { awardXP, XP_REWARDS, generateLevelUpOffers, applyLevelUpChoice } from '../systems/LevelSystem';
-import { rollDrops, applyDrops, checkPityDrop, createGuaranteedEncounterDrop } from '../systems/DropSystem';
-import { updateEnemyAI, spawnEnemiesForNode } from '../systems/EnemyAI';
-import type { LevelUpOffer, EncounterLootEntry } from '../types';
-import type { AccessibilitySettings } from '../types';
+import { rollDrops, applyDrops, createGuaranteedEncounterDrop } from '../systems/DropSystem';
+import { registry } from './DataRegistry';
 
 export type GamePhase =
-  | 'menu'
-  | 'map'
-  | 'combat'
-  | 'levelup'
-  | 'shrine'
-  | 'recovery'
-  | 'event'
-  | 'loot'
-  | 'victory'
-  | 'defeat'
-  | 'build_summary';
+  | 'menu' | 'map' | 'combat' | 'levelup' | 'shrine' | 'recovery'
+  | 'event' | 'loot' | 'victory' | 'defeat' | 'build_summary';
 
 export interface GameCallbacks {
   onPhaseChange: (phase: GamePhase) => void;
   onLevelUp: (offers: LevelUpOffer[]) => void;
   onStateUpdate: (state: RunState) => void;
-  onNodeComplete: () => void;
+  onTacticalUpdate: (snap: TacticalSnapshot | null) => void;
   onRunEnd: (won: boolean) => void;
 }
 
-const ARENA_SIZE = 13 * 32;
+/** What the action bar needs to draw itself. */
+export interface ActionBarState {
+  actions: PlayerActionOption[];
+  selectedId: string | null;
+  form: 'caster' | 'bear';
+}
+
+/** Upcoming activations, so the player can see who acts and when. */
+export interface TurnOrderEntry {
+  id: string;
+  name: string;
+  inBeats: number;
+  isPlayer: boolean;
+  intentLabel: string;
+  dangerous: boolean;
+  hp: number;
+  maxHp: number;
+}
+
+const FLOOR_ENEMY_POOL: Record<number, string[]> = {
+  1: ['skeleton_chaser', 'mushroom_spitter', 'shadow_imp', 'toxic_shroom'],
+  2: ['skeleton_chaser', 'mushroom_spitter', 'stone_golem', 'shadow_imp', 'toxic_shroom'],
+};
 
 export class Game {
-  private loop: GameLoop;
-  private input: InputManager;
-  private renderer!: Renderer;
-  private rng: SeededRNG;
   state: RunState;
   phase: GamePhase = 'menu';
+  engine: TacticalEngine | null = null;
+
+  private rng: SeededRNG;
   private callbacks: GameCallbacks;
+  private input: InputManager;
+  private renderer: TacticalRenderer | null = null;
   private canvas: HTMLCanvasElement | null = null;
-  private pendingLevelUps = 0;
-  private roomClearAwarded = false;
-  private encounterHadItemDrop = false;
-  private currentEncounterType: 'normal' | 'elite' | 'boss' = 'normal';
-  private onboardingStep = 0;
-  private periodicTimers: Map<string, number> = new Map();
   private settings: AccessibilitySettings;
 
-  // Skill auto-attack
-  private autoAttackTimer = 0;
-  private autoAttackCooldown = 0.6;
-  private turnPhase: 'player' | 'enemy' = 'player';
-  private enemyTurnTimer = 0;
-  private readonly baseGlobalCooldown = 0.35;
-  private currentGlobalCooldown = this.baseGlobalCooldown;
-  private readonly playerStepDistance = 32;
+  private rafId = 0;
+  private lastFrame = 0;
+  private running = false;
+
+  private pendingLevelUps = 0;
+  private hoverTile: Tile | null = null;
+  private selectedActionId: string | null = null;
+  private showMoveHints = true;
 
   constructor(seed: number, callbacks: GameCallbacks, settings: AccessibilitySettings) {
     this.rng = new SeededRNG(seed);
     this.state = createRunState(seed);
     this.callbacks = callbacks;
     this.settings = settings;
-    this.input = new InputManager(settings.keyBindings as any);
-
-    this.loop = new GameLoop(
-      (dt) => this.update(dt),
-      (interp) => this.render(interp)
-    );
-    this.loop.gameSpeed = settings.gameSpeed;
+    this.input = new InputManager(settings.keyBindings as never);
   }
 
-  attachCanvas(canvas: HTMLCanvasElement) {
+  // --- Lifecycle -----------------------------------------------
+
+  attachCanvas(canvas: HTMLCanvasElement): void {
     this.canvas = canvas;
-    canvas.width = canvas.clientWidth;
-    canvas.height = canvas.clientHeight;
-    this.renderer = new Renderer(canvas, {
+    this.renderer = new TacticalRenderer(canvas, {
       colorblindMode: this.settings.colorblindMode,
       reducedMotion: this.settings.reducedMotion,
       screenShake: this.settings.screenShake,
     });
     this.input.attach(canvas);
+    canvas.addEventListener('mousemove', this.onPointerMove);
+    canvas.addEventListener('click', this.onCanvasClick);
+    canvas.addEventListener('contextmenu', this.onContextMenu);
+    window.addEventListener('keydown', this.onKeyDown);
   }
 
-  updateSettings(settings: AccessibilitySettings) {
+  updateSettings(settings: AccessibilitySettings): void {
     this.settings = settings;
-    this.loop.gameSpeed = settings.gameSpeed;
-    if (this.renderer) {
-      this.renderer.updateConfig({
-        colorblindMode: settings.colorblindMode,
-        reducedMotion: settings.reducedMotion,
-        screenShake: settings.screenShake,
-      });
-    }
-    this.input.setBindings(settings.keyBindings as any);
+    this.renderer?.updateConfig({
+      colorblindMode: settings.colorblindMode,
+      reducedMotion: settings.reducedMotion,
+      screenShake: settings.screenShake,
+    });
+    this.input.setBindings(settings.keyBindings as never);
   }
 
-  start() {
+  start(): void {
     this.setPhase('map');
-    this.loop.start();
+    this.running = true;
+    this.lastFrame = performance.now();
+    this.rafId = requestAnimationFrame(this.frame);
+    this.push();
   }
 
-  stop() {
-    this.loop.stop();
+  stop(): void {
+    this.running = false;
+    cancelAnimationFrame(this.rafId);
     this.input.detach();
+    if (this.canvas) {
+      this.canvas.removeEventListener('mousemove', this.onPointerMove);
+      this.canvas.removeEventListener('click', this.onCanvasClick);
+      this.canvas.removeEventListener('contextmenu', this.onContextMenu);
+    }
+    window.removeEventListener('keydown', this.onKeyDown);
   }
 
-  pause() {
-    this.loop.paused = true;
-    this.state.paused = true;
-  }
-
-  unpause() {
-    this.loop.paused = false;
-    this.state.paused = false;
-  }
-
-  togglePause() {
-    if (this.loop.paused) this.unpause();
-    else this.pause();
-  }
-
-  setPhase(phase: GamePhase) {
+  setPhase(phase: GamePhase): void {
     this.phase = phase;
     this.callbacks.onPhaseChange(phase);
   }
 
-  // --- Enter a node ---
-  enterNode() {
-    const node = getCurrentNode(this.state);
-    this.state.entities = [];
-    this.roomClearAwarded = false;
+  // --- Render loop (visual only) -------------------------------
 
-    switch (node.type) {
-      case 'combat':
-        this.startCombat('combat');
-        break;
-      case 'elite':
-        this.startCombat('elite');
-        break;
-      case 'boss':
-        this.startCombat('boss');
-        break;
-      case 'shrine':
-        this.setPhase('shrine');
-        break;
-      case 'recovery':
-        this.setPhase('recovery');
-        break;
-      case 'event':
-        this.setPhase('event');
-        break;
+  private frame = (now: number) => {
+    if (!this.running) return;
+    this.rafId = requestAnimationFrame(this.frame);
+    const dt = Math.min(64, now - this.lastFrame);
+    this.lastFrame = now;
+
+    if (this.phase === 'combat' && this.engine && this.renderer) {
+      this.renderer.render(this.engine.snapshot(), this.buildOverlay(), dt);
+    } else if (this.renderer && this.engine && this.phase === 'levelup') {
+      this.renderer.render(this.engine.snapshot(), this.buildOverlay(), dt);
     }
-  }
+  };
 
-  private startCombat(type: 'combat' | 'elite' | 'boss') {
-    this.state.combatActive = true;
-    this.turnPhase = 'player';
-    this.enemyTurnTimer = 0;
-    this.state.player.pos = { x: 0, y: 100 };
-    this.state.encounterLoot = [];
-    this.encounterHadItemDrop = false;
-    this.currentEncounterType = type === 'combat' ? 'normal' : type;
-    this.state.player.vel = { x: 0, y: 0 };
-    (this.state.player as any)._packleaderStacks = 0;
-    (this.state.player as any)._firstSummonId = '';
-    (this.state.player as any)._moonboneBoost = 0;
+  private buildOverlay(): RenderOverlay {
+    const e = this.engine!;
+    const sel = this.selectedActionId;
+    let preview: Tile[] = [];
 
-    spawnEnemiesForNode(this.state, type, this.state.floor, this.rng);
-    this.setPhase('combat');
-
-    addCombatLog(this.state, {
-      type: 'damage',
-      source: 'system',
-      details: `Entered ${type} room (Floor ${this.state.floor})`,
-    });
-  }
-
-  completeNode() {
-    const node = getCurrentNode(this.state);
-    node.completed = true;
-
-    // Check pity drop
-    const nodeIdx = this.state.currentNodeIndex +
-      (this.state.floor - 1) * 9;
-    const pityDrop = checkPityDrop(this.state, nodeIdx, this.rng);
-    if (pityDrop) {
-      applyDrops(this.state, pityDrop);
+    if (this.hoverTile) {
+      if (sel === 'attack' || sel === null) {
+        if (e.canAttack(this.hoverTile).ok) preview = e.attackPreview(this.hoverTile);
+      }
     }
 
-    const next = advanceNode(this.state);
-    if (this.state.runComplete) {
-      this.setPhase(this.state.runWon ? 'victory' : 'defeat');
-      this.callbacks.onRunEnd(this.state.runWon);
+    return {
+      hoverTile: this.hoverTile,
+      previewTiles: preview,
+      moveOptions: this.showMoveHints ? e.moveOptions() : [],
+      attackTargets: e.attackableTiles(),
+      threat: e.threatenedTiles(),
+      showMoveHints: this.showMoveHints,
+    };
+  }
+
+  // --- Input ----------------------------------------------------
+
+  private onPointerMove = (ev: MouseEvent) => {
+    if (!this.renderer || !this.engine || !this.canvas) return;
+    const rect = this.canvas.getBoundingClientRect();
+    this.hoverTile = this.renderer.tileAt(
+      ev.clientX - rect.left, ev.clientY - rect.top, this.engine.ctx.grid);
+  };
+
+  private onContextMenu = (ev: MouseEvent) => {
+    ev.preventDefault();
+    this.selectedActionId = null;
+  };
+
+  private onCanvasClick = (ev: MouseEvent) => {
+    if (this.phase !== 'combat' || !this.engine || !this.renderer || !this.canvas) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const tile = this.renderer.tileAt(ev.clientX - rect.left, ev.clientY - rect.top, this.engine.ctx.grid);
+    if (!tile) return;
+    this.clickTile(tile);
+  };
+
+  /**
+   * One click does the obvious thing: an enemy in reach is attacked, an empty
+   * tile in step range is moved to. No mode switching for the common case.
+   */
+  clickTile(tile: Tile): void {
+    const e = this.engine;
+    if (!e || this.phase !== 'combat') return;
+
+    if (this.selectedActionId && this.selectedActionId !== 'attack') {
+      const id = this.selectedActionId;
+      this.selectedActionId = null;
+      this.apply(e.performSkill(id, tile));
       return;
     }
 
-    // Handle pending level-ups
-    if (this.pendingLevelUps > 0) {
-      this.showLevelUp();
+    const occupant = e.ctx.actors.find(a =>
+      a.alive && a.tile.x === tile.x && a.tile.y === tile.y);
+
+    if (occupant && occupant.faction === 'enemy' && e.canAttack(tile).ok) {
+      this.apply(e.performAttack(tile));
+      return;
+    }
+    if (e.canMoveTo(tile).ok) {
+      this.apply(e.performMove(tile));
+      return;
+    }
+    // Clicking a far tile steps one square along the route toward it.
+    const step = this.stepToward(tile);
+    if (step) this.apply(e.performMove(step));
+  }
+
+  private stepToward(goal: Tile): Tile | null {
+    const e = this.engine!;
+    const opts = e.moveOptions();
+    if (!opts.length) return null;
+    let best = opts[0];
+    let bd = tileDist(best.tile, goal);
+    for (const o of opts) {
+      const d = tileDist(o.tile, goal);
+      if (d < bd || (d === bd && o.cost < best.cost)) { best = o; bd = d; }
+    }
+    return tileDist(e.player.tile, goal) > bd ? best.tile : null;
+  }
+
+  private onKeyDown = (ev: KeyboardEvent) => {
+    if (this.phase !== 'combat' || !this.engine) return;
+    const e = this.engine;
+    const p = e.player.tile;
+
+    const dirs: Record<string, Tile> = {
+      KeyW: { x: 0, y: -1 }, ArrowUp: { x: 0, y: -1 },
+      KeyS: { x: 0, y: 1 }, ArrowDown: { x: 0, y: 1 },
+      KeyA: { x: -1, y: 0 }, ArrowLeft: { x: -1, y: 0 },
+      KeyD: { x: 1, y: 0 }, ArrowRight: { x: 1, y: 0 },
+      KeyQ: { x: -1, y: -1 }, KeyE: { x: 1, y: -1 },
+      KeyZ: { x: -1, y: 1 }, KeyC: { x: 1, y: 1 },
+    };
+
+    if (dirs[ev.code]) {
+      ev.preventDefault();
+      const to = { x: p.x + dirs[ev.code].x, y: p.y + dirs[ev.code].y };
+      // Walking into an enemy attacks it, as in any roguelike.
+      const occupant = e.ctx.actors.find(a => a.alive && a.tile.x === to.x && a.tile.y === to.y);
+      if (occupant && occupant.faction === 'enemy' && e.canAttack(to).ok) {
+        this.apply(e.performAttack(to));
+      } else {
+        this.apply(e.performMove(to));
+      }
       return;
     }
 
-    this.callbacks.onNodeComplete();
-    this.setPhase('map');
-  }
-
-  // --- Level up ---
-  showLevelUp() {
-    this.pendingLevelUps--;
-    const offers = generateLevelUpOffers(this.state, this.rng);
-    this.state.offeredHistory.push({
-      level: this.state.player.level,
-      offered: offers,
-      chosen: '',
-    });
-    this.setPhase('levelup');
-    this.callbacks.onLevelUp(offers);
-  }
-
-  chooseLevelUp(offerId: string) {
-    applyLevelUpChoice(this.state, offerId);
-
-    // Record choice
-    const last = this.state.offeredHistory[this.state.offeredHistory.length - 1];
-    if (last) last.chosen = offerId;
-
-    if (this.pendingLevelUps > 0) {
-      this.showLevelUp();
-    } else if (this.state.combatActive) {
-      this.setPhase('combat');
-    } else {
-      this.completeNode();
-    }
-  }
-
-  // --- Recovery ---
-  applyRecovery() {
-    this.state.player.hp = Math.min(
-      this.state.player.maxHp,
-      this.state.player.hp + Math.floor(this.state.player.maxHp * 0.3)
-    );
-    this.state.player.resource = this.state.player.maxResource;
-    this.completeNode();
-  }
-
-  // --- Event ---
-  applyEvent(choice: number) {
-    // Simple event: choice 0 = bonus essence, choice 1 = bonus HP
-    if (choice === 0) {
-      this.state.player.essence += 20;
-    } else {
-      this.state.player.maxHp += 10;
-      this.state.player.hp += 10;
-    }
-    this.completeNode();
-  }
-
-  // --- Show build summary ---
-  showBuildSummary() {
-    this.setPhase('build_summary');
-  }
-
-  confirmEncounterLoot() {
-    if (this.pendingLevelUps > 0) {
-      this.showLevelUp();
-    } else {
-      this.completeNode();
-    }
-  }
-
-  useInventoryItem(itemId: string) {
-    const idx = this.state.player.inventory.findIndex(i => i.id === itemId);
-    if (idx < 0) return;
-
-    const item = this.state.player.inventory[idx];
-
-    if (item.effect === 'heal') {
-      const before = this.state.player.hp;
-      this.state.player.hp = Math.min(this.state.player.maxHp, this.state.player.hp + item.value);
-      const healed = Math.round(this.state.player.hp - before);
-      addCombatLog(this.state, {
-        type: 'heal',
-        source: 'inventory',
-        target: 'player',
-        value: healed,
-        details: `Used ${item.name} (+${healed} HP)`,
-      });
-    } else if (item.effect === 'resource') {
-      const before = this.state.player.resource;
-      this.state.player.resource = Math.min(this.state.player.maxResource, this.state.player.resource + item.value);
-      const gained = Math.round(this.state.player.resource - before);
-      addCombatLog(this.state, {
-        type: 'trigger',
-        source: 'inventory',
-        target: 'player',
-        value: gained,
-        details: `Used ${item.name} (+${gained} Resource)`,
-      });
+    if (ev.code === 'Space' || ev.code === 'Period' || ev.code === 'Numpad5') {
+      ev.preventDefault();
+      this.apply(e.performWait());
+      return;
     }
 
-    item.charges -= 1;
-    if (item.charges <= 0) {
-      this.state.player.inventory.splice(idx, 1);
+    if (ev.code === 'Tab') {
+      ev.preventDefault();
+      this.showMoveHints = !this.showMoveHints;
+      return;
     }
+
+    const digit = /^Digit([1-9])$/.exec(ev.code);
+    if (digit) {
+      ev.preventDefault();
+      const idx = parseInt(digit[1], 10) - 1;
+      const skill = e.skills[idx];
+      if (skill) this.useSkill(skill.id);
+    }
+  };
+
+  /** Called by the action bar and by number keys. */
+  useSkill(skillId: string): void {
+    const e = this.engine;
+    if (!e || this.phase !== 'combat') return;
+    const s = e.skills.find(x => x.id === skillId);
+    if (!s || s.cooldownRemaining > 0) return;
+    // Self-targeted skills resolve immediately; aimed ones wait for a click.
+    const needsAim = ['entangling_vines', 'spore_bolt', 'wild_charge'].includes(skillId);
+    if (needsAim) {
+      this.selectedActionId = this.selectedActionId === skillId ? null : skillId;
+      this.push();
+      return;
+    }
+    this.selectedActionId = null;
+    this.apply(e.performSkill(skillId));
   }
 
-  // --- Main update ---
-  private update(dt: number) {
-    this.state.runTime += dt;
-
-    // Input: pause
-    if (this.input.isActionJustPressed('pause')) {
-      this.togglePause();
-    }
-
-    // Defensive sync: if combat is active, always surface the combat view.
-    if (this.state.combatActive && this.phase !== 'combat' && this.phase !== 'levelup') {
-      this.setPhase('combat');
-    }
-
-    if (this.phase === 'combat') {
-      this.updateCombat(dt);
-    }
-
-    this.callbacks.onStateUpdate(this.state);
-    this.input.endFrame();
+  selectAction(id: string): void {
+    this.selectedActionId = this.selectedActionId === id ? null : id;
+    this.push();
   }
 
-  private updateCombat(dt: number) {
-    const player = this.state.player;
-    (player as any)._secondsSinceHit = ((player as any)._secondsSinceHit || 999) + dt;
-    if (!player.alive) {
+  performWait(): void {
+    if (this.engine && this.phase === 'combat') this.apply(this.engine.performWait());
+  }
+
+  toggleMoveHints(): void {
+    this.showMoveHints = !this.showMoveHints;
+    this.push();
+  }
+
+  // --- Turn resolution -----------------------------------------
+
+  private apply(result: { ok: boolean; killed: Actor[]; outcome: string }): void {
+    if (!result.ok) { this.push(); return; }
+
+    result.killed.forEach(k => this.awardKill(k));
+    this.renderer?.bump(result.killed.length ? 7 : 3);
+
+    if (result.outcome === 'defeat') {
       this.state.runComplete = true;
       this.state.runWon = false;
       this.setPhase('defeat');
       this.callbacks.onRunEnd(false);
+      this.push();
       return;
     }
 
-    if (this.canvas) {
-      const mousePos = this.input.getMousePos();
-      const worldX = mousePos.x + (this.state.player.pos.x - this.canvas.width / 2);
-      const worldY = mousePos.y + (this.state.player.pos.y - this.canvas.height / 2);
-      player.rotation = Math.atan2(worldY - player.pos.y, worldX - player.pos.x);
-    }
-
-    if (this.turnPhase === 'player') {
-      player.animState = 'idle';
-      if (this.tryPlayerTurnAction()) {
-        this.processKills();
-        this.checkRoomClear();
-      }
+    if (result.outcome === 'cleared') {
+      this.onRoomCleared();
       return;
     }
 
-    // Enemy turn: enemies/summons/projectiles all resolve a short action window.
-    this.enemyTurnTimer -= dt;
-    updateEnemyAI(this.state, dt);
-    updateSummons(this.state, dt);
-    updateProjectiles(this.state, dt);
-    updateHazards(this.state, dt);
-    processPoison(this.state, dt);
-    updateStatusEffects(this.state, dt);
-    processRegen(this.state, dt);
-    updateTimers(this.state, dt);
-
-    this.processKills();
-    this.checkRoomClear();
-    cleanupEntities(this.state);
-    this.updatePeriodicEffects(dt);
-
-    if (this.enemyTurnTimer <= 0) {
-      this.turnPhase = 'player';
-      // Process Bleed at start of turn
-      processBleed(this.state);
-      this.autoAttackTimer = Math.max(0, this.autoAttackTimer - this.currentGlobalCooldown);
-      addCombatLog(this.state, {
-        type: 'trigger',
-        source: 'system',
-        details: 'Player turn',
-      });
-    }
+    this.push();
   }
 
-  private tryPlayerTurnAction(): boolean {
-    const player = this.state.player;
+  private awardKill(enemy: Actor): void {
+    const isBoss = Boolean(enemy.flags.isBoss);
+    const isElite = Boolean(enemy.flags.isElite);
+    const kind = isBoss ? 'boss' : isElite ? 'elite' : 'normal';
 
-    for (let i = 0; i < player.skills.length; i++) {
-      const skill = player.skills[i];
-      skill.cooldownRemaining = Math.max(0, skill.cooldownRemaining - this.currentGlobalCooldown);
-      const actionKey = `skill${i + 1}`;
-      if (this.input.isActionJustPressed(actionKey) && skill.cooldownRemaining <= 0) {
-        this.useSkill(skill, i);
-        this.beginEnemyTurn(this.getSkillGlobalCooldown(skill));
-        return true;
-      }
-    }
+    this.state.killCount++;
+    if (awardXP(this.state, XP_REWARDS[kind])) this.pendingLevelUps++;
 
-    const inBearForm = (player as any)._bearForm === true;
-    let step = this.playerStepDistance * (1 + this.getItemStatBonus('move_speed'));
-
-    // Bear Form: 1.5x distance
-    if (inBearForm) {
-      step *= 1.5;
-    }
-
-    const prevPos = { ...player.pos };
-    if (this.input.isActionJustPressed('moveUp')) {
-      player.pos.y -= step;
-      player.rotation = -Math.PI / 2;
-      player.animState = 'move';
-      this.applyTrample(prevPos, player.pos);
-      this.spawnTrailIfNeeded(prevPos);
-      this.checkRoaringSprint();
-      this.beginEnemyTurn(this.getMovementGlobalCooldown());
-      return true;
-    }
-    if (this.input.isActionJustPressed('moveDown')) {
-      player.pos.y += step;
-      player.rotation = Math.PI / 2;
-      player.animState = 'move';
-      this.applyTrample(prevPos, player.pos);
-      this.spawnTrailIfNeeded(prevPos);
-      this.checkRoaringSprint();
-      this.beginEnemyTurn(this.getMovementGlobalCooldown());
-      return true;
-    }
-    if (this.input.isActionJustPressed('moveLeft')) {
-      player.pos.x -= step;
-      player.rotation = Math.PI;
-      player.animState = 'move';
-      this.applyTrample(prevPos, player.pos);
-      this.spawnTrailIfNeeded(prevPos);
-      this.checkRoaringSprint();
-      this.beginEnemyTurn(this.getMovementGlobalCooldown());
-      return true;
-    }
-    if (this.input.isActionJustPressed('moveRight')) {
-      player.pos.x += step;
-      player.rotation = 0;
-      player.animState = 'move';
-      this.applyTrample(prevPos, player.pos);
-      this.spawnTrailIfNeeded(prevPos);
-      this.checkRoaringSprint();
-      this.beginEnemyTurn(this.getMovementGlobalCooldown());
-      return true;
-    }
-
-    player.pos.x = Math.max(-ARENA_SIZE, Math.min(ARENA_SIZE, player.pos.x));
-    player.pos.y = Math.max(-ARENA_SIZE, Math.min(ARENA_SIZE, player.pos.y));
-
-    this.autoAttackTimer = Math.max(0, this.autoAttackTimer - this.currentGlobalCooldown);
-    if (this.input.isMouseJustClicked() && this.autoAttackTimer <= 0) {
-      this.autoAttackTimer = this.autoAttackCooldown / player.attackSpeed;
-      player.animState = 'attack';
-
-      const inBearForm = (player as any)._bearForm === true;
-
-      if (inBearForm) {
-        // Bear Form: Double Claw Slash (120 range melee, 10 dmg, 48 radius AoE, +50% GCD)
-        const dir = { x: Math.cos(player.rotation), y: Math.sin(player.rotation) };
-        const clawRange = 120;
-        const clawAoeRadius = 48;
-        const clawDamage = 10 * player.damageScalar;
-
-        // Target point at max range
-        const targetX = player.pos.x + dir.x * clawRange;
-        const targetY = player.pos.y + dir.y * clawRange;
-        const hitTargets: Entity[] = [];
-
-        // Deal AoE damage at target location
-        this.state.entities.forEach(e => {
-          if (e.alive && e.faction === 'enemy') {
-            const distToTarget = Math.sqrt(
-              (e.pos.x - targetX) ** 2 + (e.pos.y - targetY) ** 2
-            );
-            if (distToTarget < clawAoeRadius) {
-              const dmgEvent = {
-                attackerId: 'player',
-                targetId: e.id,
-                baseDamage: clawDamage,
-                damageType: 'physical',
-                tags: ['AOE', 'Melee', 'Physical'] as any,
-                isProjectile: false,
-              };
-              processDamage(dmgEvent, this.state, {
-                rng: this.rng,
-                renderer: this.renderer,
-                now: Date.now()
-              });
-              hitTargets.push(e);
-            }
-          }
-        });
-
-        // Visual feedback
-        if (this.renderer) {
-          this.renderer.spawnParticles(targetX, targetY, '#8b4513', 15);
-        }
-
-        if (hitTargets.length > 0) {
-          addCombatLog(this.state, {
-            type: 'attack',
-            source: 'player',
-            details: `Claw Slash hit ${hitTargets.length} enemies for ${Math.round(clawDamage)} damage`,
-          });
-
-          // Trigger OnAreaDamage effects
-          processOnAreaDamageTriggers(player, hitTargets, clawDamage, this.state, {
-            rng: this.rng,
-            renderer: this.renderer,
-            now: Date.now()
-          });
-        }
-
-        // Bear Form GCD: 0.42s base * 1.5 = 0.63s
-        this.beginEnemyTurn(this.getBasicAttackGlobalCooldown() * 1.5);
-      } else {
-        // Human Form: Bark Missile (96 range, 8 dmg, Splash 32 radius on expire, 0.42s GCD)
-        const dir = { x: Math.cos(player.rotation), y: Math.sin(player.rotation) };
-        const proj: ProjectileEntity = {
-          id: `proj_${Date.now()}_${Math.random()}`,
-          type: 'projectile',
-          pos: { x: player.pos.x + dir.x * 15, y: player.pos.y + dir.y * 15 },
-          vel: { x: dir.x * 300, y: dir.y * 300 },
-          hp: 1, maxHp: 1,
-          radius: 4,
-          speed: 300,
-          faction: 'player',
-          tags: ['Projectile', 'Physical', 'Nature'],
-          alive: true,
-          invulnMs: 0, flashMs: 0, deathAnimMs: 0,
-          animState: 'idle',
-          rotation: player.rotation,
-          ownerId: 'player',
-          damage: 8 * player.damageScalar,
-          piercing: false,
-          lifetime: 0.32, // 96 range / 300 speed
-          maxLifetime: 0.32,
-          hitEntities: new Set(),
-          splashRadius: 32, // Splash on expire
-          splashDamage: 8 * player.damageScalar,
-        };
-        this.state.entities.push(proj);
-        this.beginEnemyTurn(this.getBasicAttackGlobalCooldown());
-      }
-
-      return true;
-    }
-
-    return false;
+    const drops = rollDrops(this.state, kind, this.rng);
+    if (drops.items.length) this.collectLoot(drops.items);
+    applyDrops(this.state, drops);
   }
 
-  private spawnTrailIfNeeded(pos: Vec2) {
-    if (!this.hasItem('wild_stride_boots')) return;
-    const hazard: any = {
-      id: `trail_${Date.now()}_${Math.random()}`,
-      type: 'hazard',
-      pos: { ...pos },
-      vel: { x: 0, y: 0 },
-      hp: 1, maxHp: 1,
-      radius: 16,
-      speed: 0,
-      faction: 'player',
-      tags: ['DOT', 'Physical'],
-      alive: true,
-      invulnMs: 0, flashMs: 0, deathAnimMs: 0,
-      animState: 'idle',
-      rotation: 0,
-      ownerId: 'player',
-      damage: 3,
-      tickRate: 0.4,
-      tickTimer: 0,
-      duration: 1.3,
-      maxDuration: 1.3,
-    };
-    this.state.entities.push(hazard);
-    if (this.renderer) this.renderer.spawnParticles(pos.x, pos.y, '#8bc34a', 4);
-  }
-
-  private applyTrample(startPos: Vec2, endPos: Vec2) {
-    const player = this.state.player;
-    const inBearForm = (player as any)._bearForm === true;
-    if (!inBearForm) return;
-
-    // Bear Form Trample: Deal 6 damage to enemies moved through
-    const trampleDamage = 6 * player.damageScalar;
-    const trampleRadius = 24; // Detection radius along the path
-
-    this.state.entities.forEach(e => {
-      if (e.alive && e.faction === 'enemy') {
-        // Check if enemy is close to the movement path
-        const pathDist = distToLine(startPos, endPos, e.pos);
-        if (pathDist < trampleRadius + e.radius) {
-          const dmgEvent = {
-            attackerId: 'player',
-            targetId: e.id,
-            baseDamage: trampleDamage,
-            damageType: 'physical',
-            tags: ['Trample', 'OnMove', 'Physical'] as any,
-            isProjectile: false,
-          };
-          processDamage(dmgEvent, this.state, {
-            rng: this.rng,
-            renderer: this.renderer,
-            now: Date.now()
-          });
-        }
-      }
-    });
-  }
-
-  private checkRoaringSprint() {
-    const player = this.state.player;
-
-    // Check if player has Roaring Sprint skill
-    const roaringSprint = player.skills.find(s => s.def.id === 'roaring_sprint');
-    if (!roaringSprint) return;
-
-    // Check if player is in Bear Form
-    const inBearForm = (player as any)._bearForm === true;
-    if (!inBearForm) return;
-
-    // Emit AoE Roar at player's current position (destination)
-    const roarRadius = roaringSprint.def.aoeRadius || 80;
-    const roarDamage = (roaringSprint.def.damage || 6) * player.damageScalar;
-    const hitTargets: Entity[] = [];
-
-    this.state.entities.forEach(e => {
-      if (e.alive && e.faction === 'enemy' && dist(e.pos, player.pos) < roarRadius) {
-        const dmgEvent = {
-          attackerId: 'player',
-          targetId: e.id,
-          baseDamage: roarDamage,
-          damageType: 'physical',
-          tags: ['AOE', 'OnMove', 'Nature'] as any,
-          isProjectile: false,
-        };
-        processDamage(dmgEvent, this.state, { rng: this.rng, renderer: this.renderer, now: Date.now() });
-        hitTargets.push(e);
-      }
-    });
-
-    if (hitTargets.length > 0) {
-      // Spawn visual effect
-      if (this.renderer) this.renderer.spawnParticles(player.pos.x, player.pos.y, '#d2691e', 20);
-
-      addCombatLog(this.state, {
-        type: 'trigger',
-        source: 'roaring_sprint',
-        details: `Roar hit ${hitTargets.length} enemies for ${Math.round(roarDamage)} damage`,
-      });
-
-      // Trigger OnAreaDamage effects (like Bleeding Wounds)
-      processOnAreaDamageTriggers(player, hitTargets, roarDamage, this.state, {
-        rng: this.rng,
-        renderer: this.renderer,
-        now: Date.now()
-      });
-    }
-  }
-
-  private beginEnemyTurn(globalCooldown: number = this.baseGlobalCooldown) {
-    const player = this.state.player;
-    player.pos.x = Math.max(-ARENA_SIZE, Math.min(ARENA_SIZE, player.pos.x));
-    player.pos.y = Math.max(-ARENA_SIZE, Math.min(ARENA_SIZE, player.pos.y));
-    this.currentGlobalCooldown = Math.max(0.2, globalCooldown);
-    this.turnPhase = 'enemy';
-    this.enemyTurnTimer = this.currentGlobalCooldown;
-    addCombatLog(this.state, {
-      type: 'trigger',
-      source: 'system',
-      details: 'Enemy turn',
-    });
-  }
-
-
-  private getSkillGlobalCooldown(skill: ActiveSkill): number {
-    return Math.max(0.3, Math.min(1.1, skill.def.cooldown * 0.45));
-  }
-
-  private getMovementGlobalCooldown(): number {
-    const player = this.state.player;
-    const inBearForm = (player as any)._bearForm === true;
-
-    // Base GCD: 0.28s
-    // Bear Form: +40% GCD = 0.392s
-    let gcd = 0.28;
-    if (inBearForm) {
-      gcd *= 1.4;
-    }
-
-    // Roaring Sprint adds another +30% if equipped
-    const roaringSprint = player.skills.find(s => s.def.id === 'roaring_sprint');
-    if (roaringSprint && inBearForm) {
-      gcd *= 1.3;
-    }
-
-    return gcd;
-  }
-
-  private getBasicAttackGlobalCooldown(): number {
-    return 0.42;
-  }
-  private checkRoomClear() {
-    const livingEnemies = this.state.entities.filter(
-      e => e.type === 'enemy' && e.alive
-    );
-
-    if (livingEnemies.length === 0 && !this.roomClearAwarded && this.state.combatActive) {
-      this.roomClearAwarded = true;
-      this.state.combatActive = false;
-      const lvl = awardXP(this.state, XP_REWARDS.roomClear);
-      if (lvl) this.pendingLevelUps++;
-
-      setTimeout(() => {
-        if (!this.encounterHadItemDrop) {
-          const guaranteed = createGuaranteedEncounterDrop(this.state, this.rng, this.currentEncounterType);
-          this.collectEncounterLoot(guaranteed.items);
-          applyDrops(this.state, guaranteed);
-          this.encounterHadItemDrop = true;
-        }
-
-        if (this.state.encounterLoot.length > 0) {
-          this.setPhase('loot');
-          return;
-        }
-
-        if (this.pendingLevelUps > 0) {
-          this.showLevelUp();
-        } else {
-          this.completeNode();
-        }
-      }, 400);
-    }
-  }
-
-  private processKills() {
-    const deadEnemies = this.state.entities.filter(
-      e => e.type === 'enemy' && !e.alive && e.deathAnimMs > 0 && e.deathAnimMs <= 500
-    );
-
-    // Only process newly dead
-    deadEnemies.forEach(e => {
-      if ((e as any)._xpAwarded) return;
-      (e as any)._xpAwarded = true;
-
-      const enemy = e as any;
-      const isBoss = enemy.def?.id?.startsWith('boss_');
-      const isElite = !!enemy.eliteModifier;
-      if (isElite && this.hasItem('moonbone_charm')) {
-        (this.state.player as any)._moonboneBoost = 0.12;
-      }
-
-      const xpType = isBoss ? 'boss' : isElite ? 'elite' : 'normal';
-      const xp = XP_REWARDS[xpType];
-      const leveled = awardXP(this.state, xp);
-      if (leveled) this.pendingLevelUps++;
-
-      this.state.killCount++;
-
-      // Roll drops
-      const drops = rollDrops(this.state, xpType, this.rng);
-      if (drops.items.length > 0) {
-        this.collectEncounterLoot(drops.items);
-        this.encounterHadItemDrop = true;
-      }
-      applyDrops(this.state, drops);
-
-      // Particles
-      if (this.renderer) {
-        this.renderer.spawnParticles(e.pos.x, e.pos.y, '#ff5722', 8);
-      }
-
-      // Track death cause
-      const cause = isBoss ? 'boss_kill' : isElite ? 'elite_kill' : 'normal_kill';
-      // Player death cause tracking in combat log already handles this
-    });
-  }
-
-  private useSkill(skill: ActiveSkill, index: number) {
-    const def = skill.def;
-    skill.cooldownRemaining = Math.max(HARD_CAPS.minCooldown, def.cooldown);
-
-    const player = this.state.player;
-
-    // Check for Repeating Echo buff (skip Transform and Repeating Echo itself)
-    const hasRepeatingEcho = (player as any)._repeatingEchoBuff > 0;
-    const shouldEcho = hasRepeatingEcho &&
-                       def.id !== 'repeating_echo' &&
-                       def.id !== 'bear_form_transform' &&
-                       def.id !== 'bear_form_enhanced';
-
-    // Mycorrhizal Bond - reduce next non-summon cooldown after summon
-    if (def.tags.includes('Summon')) {
-      const mycBond = player.passives.find(p => p.def.id === 'mycorrhizal_bond');
-      if (mycBond && mycBond.active) {
-        // Flag for next non-summon skill
-        (player as any)._nextCooldownReduction = 0.30;
-      }
-    } else if ((player as any)._nextCooldownReduction) {
-      skill.cooldownRemaining *= (1 - (player as any)._nextCooldownReduction);
-      delete (player as any)._nextCooldownReduction;
-    }
-
-    player.animState = 'attack';
-
-    // Execute skill effect
-    this.executeSkillEffect(def);
-
-    // If Repeating Echo active, execute again at 60% effectiveness
-    if (shouldEcho) {
-      const originalDamageScalar = player.damageScalar;
-      player.damageScalar *= 0.60; // 60% effectiveness for echo
-      this.executeSkillEffect(def);
-      player.damageScalar = originalDamageScalar;
-
-      // Consume Repeating Echo buff
-      delete (player as any)._repeatingEchoBuff;
-      if (this.renderer) this.renderer.spawnParticles(player.pos.x, player.pos.y, '#b39ddb', 15);
-      addCombatLog(this.state, {
-        type: 'trigger',
-        source: 'repeating_echo',
-        details: `${def.name} echoed at 60% effectiveness`,
-      });
-    }
-
-    this.spawnSkillVisuals(def.id);
-
-    addCombatLog(this.state, {
-      type: 'trigger',
-      source: 'player',
-      details: `Used skill: ${def.name}`,
-    });
-
-    if (this.hasItem('echo_seed') && this.rng.chance(0.15)) {
-      const dir = { x: Math.cos(player.rotation), y: Math.sin(player.rotation) };
-      const echo: ProjectileEntity = {
-        id: `echo_${Date.now()}_${Math.random()}`,
-        type: 'projectile',
-        pos: { x: player.pos.x + dir.x * 15, y: player.pos.y + dir.y * 15 },
-        vel: { x: dir.x * 260, y: dir.y * 260 },
-        hp: 1, maxHp: 1, radius: 4, speed: 260, faction: 'player',
-        tags: ['Projectile', 'Nature'], alive: true,
-        invulnMs: 0, flashMs: 0, deathAnimMs: 0, animState: 'idle', rotation: player.rotation,
-        ownerId: 'player', damage: 4 * player.damageScalar, piercing: false, lifetime: 1.1, maxLifetime: 1.1, hitEntities: new Set(),
-      };
-      this.state.entities.push(echo);
-      if (this.renderer) this.renderer.spawnParticles(player.pos.x, player.pos.y, '#b39ddb', 6);
-      addCombatLog(this.state, { type: 'trigger', source: 'item', details: 'Echo Seed duplicated a weakened cast' });
-    }
-  }
-
-  private executeSkillEffect(def: typeof this.state.player.skills[0]['def']) {
-    const player = this.state.player;
-
-    if (def.id === 'bear_form_transform' || def.id === 'bear_form_enhanced') {
-      // Toggle between Caster and Bear forms
-      const wasInBearForm = (player as any)._bearForm === true;
-      (player as any)._bearForm = !wasInBearForm;
-      const formName = (player as any)._bearForm ? 'Bear Form' : 'Caster Form';
-
-      // Bear Form: +20% max HP
-      if ((player as any)._bearForm) {
-        // Entering Bear Form: add +20% maxHp
-        const baseMaxHp = (player as any)._baseMaxHp || player.maxHp;
-        (player as any)._baseMaxHp = baseMaxHp;
-        const newMaxHp = Math.floor(baseMaxHp * 1.2);
-        const hpGain = newMaxHp - player.maxHp;
-        player.maxHp = newMaxHp;
-        player.hp = Math.min(player.hp + hpGain, player.maxHp); // Gain HP when transforming
-      } else {
-        // Leaving Bear Form: restore base maxHp
-        const baseMaxHp = (player as any)._baseMaxHp || 100;
-        player.maxHp = baseMaxHp;
-        player.hp = Math.min(player.hp, player.maxHp); // Clamp current HP
-      }
-
-      if (this.renderer) {
-        const color = (player as any)._bearForm ? '#8b4513' : '#4caf50';
-        this.renderer.spawnParticles(player.pos.x, player.pos.y, color, 15);
-      }
-      addCombatLog(this.state, {
-        type: 'trigger',
-        source: 'player',
-        details: `Transformed to ${formName}`,
-      });
-      // Process OnTransform triggers (Feral Adaptation)
-      const feralAdaptation = player.passives.find(p => p.def.id === 'feral_adaptation');
-      if (feralAdaptation && feralAdaptation.active) {
-        player.invulnMs = 2000; // 2s invulnerability
-        // Deal 60 radius AoE damage
-        this.dealAoeDamage(player.pos, 60, 12, ['AOE', 'OnTransform']);
-        if (this.renderer) this.renderer.spawnParticles(player.pos.x, player.pos.y, '#ff9800', 20);
-        addCombatLog(this.state, {
-          type: 'trigger',
-          source: 'feral_adaptation',
-          details: 'Feral Adaptation: gained invulnerability and dealt burst AoE',
-        });
-      }
-    } else if (def.summonId) {
-      this.spawnSummon(def);
-    } else if (def.projectileSpeed) {
-      this.fireSkillProjectile(def);
-    } else if (def.aoeRadius) {
-      this.useAoeSkill(def);
-    } else if (def.id === 'wild_charge') {
-      this.useDash(def);
-    } else if (def.id === 'fungal_link') {
-      (player as any)._fungalLinkMs = (def.duration || 6) * 1000;
-      if (this.renderer) this.renderer.spawnParticles(player.pos.x, player.pos.y, '#81c784', 10);
-      addCombatLog(this.state, {
-        type: 'heal',
-        source: 'player',
-        details: `Activated Fungal Link (${def.duration}s)`,
-      });
-    } else if (def.id === 'repeating_echo') {
-      // Grant Repeating Echo buff (8s duration)
-      (player as any)._repeatingEchoBuff = (def.duration || 8) * 1000;
-      if (this.renderer) this.renderer.spawnParticles(player.pos.x, player.pos.y, '#b39ddb', 12);
-      addCombatLog(this.state, {
-        type: 'trigger',
-        source: 'player',
-        details: 'Activated Repeating Echo - next ability triggers twice',
-      });
-    } else if (def.id === 'thorn_mantle') {
-      // Grant Thorn Mantle buff (6s duration)
-      (player as any)._thornMantleBuff = (def.duration || 6) * 1000;
-      (player as any)._thornMantleDamage = def.damage || 8;
-      (player as any)._thornMantleRadius = def.aoeRadius || 40;
-      if (this.renderer) this.renderer.spawnParticles(player.pos.x, player.pos.y, '#8b4513', 15);
-      addCombatLog(this.state, {
-        type: 'trigger',
-        source: 'player',
-        details: `Activated Thorn Mantle (${def.duration}s) - retaliate when damaged`,
-      });
-    }
-  }
-
-  private spawnSummon(def: typeof this.state.player.skills[0]['def']) {
-    const activeSummons = this.state.entities.filter(
-      e => e.type === 'summon' && e.alive && e.faction === 'player'
-    );
-
-    if (activeSummons.length >= HARD_CAPS.maxActiveSummons) return;
-    if (def.maxSummons && activeSummons.filter(s =>
-      (s as SummonEntity).summonDefId === def.summonId
-    ).length >= def.maxSummons) return;
-
-    const player = this.state.player;
-    const angle = Math.random() * Math.PI * 2;
-    const summon: SummonEntity = {
-      id: `summon_${Date.now()}_${Math.random()}`,
-      type: 'summon',
-      pos: {
-        x: player.pos.x + Math.cos(angle) * 40,
-        y: player.pos.y + Math.sin(angle) * 40,
-      },
-      vel: { x: 0, y: 0 },
-      hp: 30,
-      maxHp: 30,
-      radius: 9,
-      speed: 3.5 * 32,
-      faction: 'player',
-      tags: def.tags,
-      alive: true,
-      invulnMs: 0, flashMs: 0, deathAnimMs: 0,
-      animState: 'idle',
-      rotation: 0,
-      ownerId: 'player',
-      summonDefId: def.summonId || def.id,
-      duration: def.duration || 20,
-      maxDuration: def.duration || 20,
-      damage: def.damage || 8,
-      attackCooldown: 1.2,
-      attackCooldownRemaining: 0,
-      attackRange: 28,
-    };
-
-    // Item stat mods
-    const summonDamageBonus = this.getItemStatBonus('summon_damage');
-    if (summonDamageBonus > 0) {
-      const moonboneBoost = (player as any)._moonboneBoost ? summonDamageBonus : 0;
-      summon.damage *= (1 + summonDamageBonus + moonboneBoost);
-    }
-    const totemDurationBonus = this.getItemStatBonus('totem_duration');
-    if (totemDurationBonus > 0 && def.tags.includes('Totem')) {
-      summon.duration *= (1 + totemDurationBonus);
-      summon.maxDuration = summon.duration;
-    }
-
-    if (this.hasItem('packleader_fang')) {
-      const stacks = (player as any)._packleaderStacks || 0;
-      const firstSummonId = (player as any)._firstSummonId as string;
-      if (!firstSummonId) {
-        (player as any)._firstSummonId = summon.id;
-      } else if (firstSummonId) {
-        const first = this.state.entities.find(e => e.id === firstSummonId && e.type === 'summon' && e.alive) as SummonEntity | undefined;
-        if (first) first.damage += 5;
-      }
-      (player as any)._packleaderStacks = stacks + 1;
-    }
-
-    // Apply Alpha Bond
-    const alphaBond = player.passives.find(p => p.def.id === 'alpha_bond');
-    if (alphaBond && alphaBond.active) {
-      const currentSummons = this.state.entities.filter(e => e.type === 'summon' && e.alive);
-      if (currentSummons.length === 0) {
-        summon.hp *= 1.4;
-        summon.maxHp = summon.hp;
-        summon.damage *= 1.6;
-      }
-    }
-
-    // Apply Symbiotic Growth
-    const symGrowth = player.passives.find(p => p.def.id === 'symbiotic_growth');
-    if (symGrowth && symGrowth.active) {
-      const summonCount = this.state.entities.filter(e => e.type === 'summon' && e.alive).length + 1;
-      player.maxHp = 100 + summonCount * 8;
-    }
-
-    this.state.entities.push(summon);
-
-    addCombatLog(this.state, {
-      type: 'summon',
-      source: 'player',
-      details: `Summoned ${def.name}`,
-    });
-  }
-
-  private fireSkillProjectile(def: typeof this.state.player.skills[0]['def']) {
-    const player = this.state.player;
-    const dir = { x: Math.cos(player.rotation), y: Math.sin(player.rotation) };
-    const speed = def.projectileSpeed || 250;
-    const count = def.projectileCount || 1;
-
-    for (let i = 0; i < count; i++) {
-      const spread = count > 1 ? (i - (count - 1) / 2) * 0.15 : 0;
-      const angle = player.rotation + spread;
-      const proj: ProjectileEntity = {
-        id: `proj_${Date.now()}_${Math.random()}`,
-        type: 'projectile',
-        pos: { x: player.pos.x, y: player.pos.y },
-        vel: { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed },
-        hp: 1, maxHp: 1,
-        radius: 6,
-        speed,
-        faction: 'player',
-        tags: def.tags,
-        alive: true,
-        invulnMs: 0, flashMs: 0, deathAnimMs: 0,
-        animState: 'idle',
-        rotation: angle,
-        ownerId: 'player',
-        damage: (def.damage || 10) * player.damageScalar,
-        piercing: false,
-        lifetime: 2,
-        maxLifetime: 2,
-        hitEntities: new Set(),
-        aoeOnImpact: def.aoeRadius,
-      };
-      this.state.entities.push(proj);
-    }
-  }
-
-  private useAoeSkill(def: typeof this.state.player.skills[0]['def']) {
-    const player = this.state.player;
-    const radius = (def.aoeRadius || 48) * (1 + this.getItemStatBonus('aoe_radius'));
-
-    // If ranged, place at mouse position; if melee, at player
-    let center = { ...player.pos };
-    if (def.range && def.range > 0 && this.canvas) {
-      const mousePos = this.input.getMousePos();
-      center = {
-        x: mousePos.x + (player.pos.x - this.canvas.width / 2),
-        y: mousePos.y + (player.pos.y - this.canvas.height / 2),
-      };
-      // Clamp to range
-      const d = dist(player.pos, center);
-      if (d > def.range) {
-        const dir = dirTo(player.pos, center);
-        center.x = player.pos.x + dir.x * def.range;
-        center.y = player.pos.y + dir.y * def.range;
-      }
-    }
-
-    if (def.duration && def.duration > 0) {
-      // Create hazard zone (player-owned)
-      const hazardTags = [...def.tags];
-      if (def.id === 'entangling_vines' && !hazardTags.includes('Debuff')) hazardTags.push('Debuff');
-      if (def.id === 'totemic_ward') {
-        if (!hazardTags.includes('Heal')) hazardTags.push('Heal');
-        if (!hazardTags.includes('Debuff')) hazardTags.push('Debuff');
-      }
-
-      const hazard: any = {
-        id: `hazard_${Date.now()}_${Math.random()}`,
-        type: 'hazard',
-        pos: center,
-        vel: { x: 0, y: 0 },
-        hp: 1, maxHp: 1,
-        radius,
-        speed: 0,
-        faction: 'player',
-        tags: hazardTags,
-        alive: true,
-        invulnMs: 0, flashMs: 0, deathAnimMs: 0,
-        animState: 'idle',
-        rotation: 0,
-        ownerId: 'player',
-        damage: def.id === 'totemic_ward' ? 0 : (def.damage || 4) * player.damageScalar,
-        tickRate: 0.5,
-        tickTimer: 0,
-        duration: def.duration,
-        maxDuration: def.duration,
-      };
-      this.state.entities.push(hazard);
-    } else {
-      // Instant AOE
-      this.state.entities.forEach(e => {
-        if (e.alive && e.faction === 'enemy' && dist(e.pos, center) < radius) {
-          processDamage({
-            attackerId: 'player',
-            targetId: e.id,
-            baseDamage: (def.damage || 15) * player.damageScalar,
-            damageType: 'physical',
-            tags: def.tags,
-            isProjectile: false,
-          }, this.state);
-        }
-      });
-    }
-  }
-
-  private dealAoeDamage(center: Vec2, radius: number, damage: number, tags: Tag[]) {
-    const player = this.state.player;
-    const hitTargets: Entity[] = [];
-
-    this.state.entities.forEach(e => {
-      if (e.alive && e.faction === 'enemy' && dist(e.pos, center) < radius) {
-        processDamage({
-          attackerId: 'player',
-          targetId: e.id,
-          baseDamage: damage * player.damageScalar,
-          damageType: 'physical',
-          tags,
-          isProjectile: false,
-        }, this.state);
-        hitTargets.push(e);
-      }
-    });
-
-    // Trigger OnAreaDamage effects if targets were hit
-    if (hitTargets.length > 0 && typeof processOnAreaDamageTriggers === 'function') {
-      processOnAreaDamageTriggers(player, hitTargets, damage, this.state, { depth: 0, triggerCounts: new Map(), spawnCount: 0 });
-    }
-  }
-
-  private useDash(def: typeof this.state.player.skills[0]['def']) {
-    const player = this.state.player;
-    const dir = { x: Math.cos(player.rotation), y: Math.sin(player.rotation) };
-    const dashDist = def.range || 160;
-
-    // Move player
-    const startPos = { ...player.pos };
-    player.pos.x += dir.x * dashDist;
-    player.pos.y += dir.y * dashDist;
-
-    // Clamp
-    player.pos.x = Math.max(-ARENA_SIZE, Math.min(ARENA_SIZE, player.pos.x));
-    player.pos.y = Math.max(-ARENA_SIZE, Math.min(ARENA_SIZE, player.pos.y));
-
-    // Damage enemies in path
-    this.state.entities.forEach(e => {
-      if (e.alive && e.faction === 'enemy') {
-        // Simple line-circle intersection
-        const d = distToLine(startPos, player.pos, e.pos);
-        if (d < e.radius + player.radius) {
-          processDamage({
-            attackerId: 'player',
-            targetId: e.id,
-            baseDamage: (def.damage || 15) * player.damageScalar,
-            damageType: 'physical',
-            tags: def.tags,
-            isProjectile: false,
-          }, this.state);
-        }
-      }
-    });
-
-    player.invulnMs = 200;
-  }
-
-
-
-  private spawnSkillVisuals(skillId: string) {
-    if (!this.renderer) return;
-    const { x, y } = this.state.player.pos;
-    const palette: Record<string, string> = {
-      summon_briar_wolf: '#66bb6a',
-      entangling_vines: '#8bc34a',
-      spore_bolt: '#7e57c2',
-      spirit_swarm: '#ab47bc',
-      thornburst: '#ef5350',
-      totemic_ward: '#4dd0e1',
-      fungal_link: '#81c784',
-      wild_charge: '#ffb74d',
-    };
-    this.renderer.spawnParticles(x, y, palette[skillId] || '#90caf9', 8);
-  }
-
-  private collectEncounterLoot(items: Array<{ id: string; name: string; rarity: any; description: string; triggerSentence: string }>) {
-    items.forEach(item => {
+  private collectLoot(items: { id: string; name: string; rarity: string; description?: string }[]): void {
+    items.forEach(i => {
+      const def = registry.getItem(i.id);
       const entry: EncounterLootEntry = {
-        id: item.id,
-        name: item.name,
-        rarity: item.rarity,
-        description: item.description,
-        effectSummary: item.triggerSentence,
+        id: i.id,
+        name: i.name,
+        rarity: (i.rarity ?? 'Common') as EncounterLootEntry['rarity'],
+        description: def?.description ?? i.description ?? '',
+        effectSummary: def?.triggerSentence ?? '',
       };
       this.state.encounterLoot.push(entry);
     });
   }
 
-  private hasItem(itemId: string): boolean {
-    return this.state.player.items.some(i => i.def.id === itemId);
+  private onRoomCleared(): void {
+    const node = getCurrentNode(this.state);
+    this.state.combatActive = false;
+
+    if (awardXP(this.state, XP_REWARDS.roomClear)) this.pendingLevelUps++;
+
+    // Every encounter yields something, so a cleared room always reads as progress.
+    if (this.state.encounterLoot.length === 0) {
+      const kind = node.type === 'boss' ? 'boss' : node.type === 'elite' ? 'elite' : 'normal';
+      const guaranteed = createGuaranteedEncounterDrop(this.state, this.rng, kind);
+      this.collectLoot(guaranteed.items);
+      applyDrops(this.state, guaranteed);
+    }
+
+    updateBuildTags(this.state.player);
+    this.push();
+
+    if (this.state.encounterLoot.length > 0) { this.setPhase('loot'); return; }
+    if (this.pendingLevelUps > 0) { this.showLevelUp(); return; }
+    this.finishNode();
   }
 
-  private getItemStatBonus(stat: string): number {
-    let total = 0;
-    this.state.player.items.forEach(item => {
-      item.def.effects.forEach(effect => {
-        if (effect.type === 'stat_mod' && effect.stat === stat) {
-          total += effect.value || 0;
-        }
-      });
+  // --- Run-scale flow -------------------------------------------
+
+  enterNode(): void {
+    const node = getCurrentNode(this.state);
+    this.state.encounterLoot = [];
+
+    switch (node.type) {
+      case 'combat': case 'elite': case 'boss':
+        this.startRoom(node.type);
+        break;
+      case 'shrine': this.setPhase('shrine'); break;
+      case 'recovery': this.setPhase('recovery'); break;
+      case 'event': this.setPhase('event'); break;
+    }
+    this.push();
+  }
+
+  travel(nodeId: string): void {
+    if (!travelTo(this.state, nodeId)) return;
+    this.enterNode();
+  }
+
+  private startRoom(type: NodeType): void {
+    const floor = this.state.floor;
+    const pool = FLOOR_ENEMY_POOL[floor] ?? FLOOR_ENEMY_POOL[1];
+
+    let ids: string[];
+    if (type === 'boss') {
+      ids = [floor >= 2 ? 'boss_spore_queen' : 'boss_elder_treant'];
+      // The boss brings a small escort so the room is a fight, not a duel.
+      for (let i = 0; i < 2; i++) ids.push(this.rng.pick(pool));
+    } else if (type === 'elite') {
+      const count = floor >= 2 ? 4 : 3;
+      ids = Array.from({ length: count }, () => this.rng.pick(pool));
+    } else {
+      const count = floor >= 2 ? this.rng.nextInt(4, 5) : this.rng.nextInt(3, 4);
+      ids = Array.from({ length: count }, () => this.rng.pick(pool));
+    }
+
+    if (!this.engine) this.engine = new TacticalEngine(this.rng, this.state.player);
+    this.engine.startRoom(type, floor, ids, type === 'elite' || type === 'boss');
+    this.state.combatActive = true;
+    this.selectedActionId = null;
+    this.setPhase('combat');
+
+    addCombatLog(this.state, {
+      type: 'trigger', source: 'system',
+      details: `Entered ${type} — ${this.engine.layoutName}`,
     });
-    return total;
   }
 
-  private updatePeriodicEffects(dt: number) {
-    const player = this.state.player;
-
-    // Update buff timers (convert dt to ms)
-    const dtMs = dt * 1000;
-
-    // Repeating Echo buff
-    if ((player as any)._repeatingEchoBuff !== undefined) {
-      (player as any)._repeatingEchoBuff -= dtMs;
-      if ((player as any)._repeatingEchoBuff <= 0) {
-        delete (player as any)._repeatingEchoBuff;
-        addCombatLog(this.state, {
-          type: 'trigger',
-          source: 'player',
-          details: 'Repeating Echo expired',
-        });
-      }
-    }
-
-    // Thorn Mantle buff
-    if ((player as any)._thornMantleBuff !== undefined) {
-      (player as any)._thornMantleBuff -= dtMs;
-      if ((player as any)._thornMantleBuff <= 0) {
-        delete (player as any)._thornMantleBuff;
-        delete (player as any)._thornMantleDamage;
-        delete (player as any)._thornMantleRadius;
-        addCombatLog(this.state, {
-          type: 'trigger',
-          source: 'player',
-          details: 'Thorn Mantle expired',
-        });
-      }
-    }
-
-    // Verdant Pulse (10s heal)
-    const verdantPulse = player.passives.find(p => p.def.id === 'verdant_pulse');
-    if (verdantPulse && verdantPulse.active) {
-      const timer = (this.periodicTimers.get('verdant_pulse') || 0) + dt;
-      if (timer >= 10) {
-        this.periodicTimers.set('verdant_pulse', 0);
-        player.hp = Math.min(player.maxHp, player.hp + 5);
-        this.state.entities.forEach(e => {
-          if (e.type === 'summon' && e.alive && e.faction === 'player') {
-            e.hp = Math.min(e.maxHp, e.hp + 5);
-          }
-        });
-      } else {
-        this.periodicTimers.set('verdant_pulse', timer);
-      }
-    }
-
-    // Living Moss Shield
-    if (this.hasItem('living_moss_shield')) {
-      const timer = ((player as any)._mossTimer || 0) + dt;
-      (player as any)._mossTimer = timer;
-      if (timer >= 3) {
-        (player as any)._mossTimer = 0;
-        const sinceHit = (player as any)._secondsSinceHit || 999;
-        const heal = sinceHit >= 5 ? 4 : 2;
-        player.hp = Math.min(player.maxHp, player.hp + heal);
-      }
-    }
-
-    // Moonbone elite-kill burst decay
-    if ((player as any)._moonboneBoost > 0) {
-      (player as any)._moonboneBoost = Math.max(0, (player as any)._moonboneBoost - dt * 0.06);
-    }
-
-    // Feral Momentum decay
-    const feralMomentum = player.passives.find(p => p.def.id === 'feral_momentum');
-    if (feralMomentum && feralMomentum.active) {
-      if (player.damageScalar > 1.0) {
-        player.damageScalar = Math.max(1.0, player.damageScalar - 0.08 * dt / 5);
-      }
-    }
+  showLevelUp(): void {
+    this.pendingLevelUps--;
+    const offers = generateLevelUpOffers(this.state, this.rng);
+    this.state.offeredHistory.push({ level: this.state.player.level, offered: offers, chosen: '' });
+    this.setPhase('levelup');
+    this.callbacks.onLevelUp(offers);
   }
 
-  private render(interp: number) {
-    if (!this.renderer || !this.canvas) return;
+  chooseLevelUp(offerId: string): void {
+    applyLevelUpChoice(this.state, offerId);
+    const last = this.state.offeredHistory[this.state.offeredHistory.length - 1];
+    if (last) last.chosen = offerId;
+    updateBuildTags(this.state.player);
+    this.engine?.rebuildSkills();
 
-    // Resize check
-    if (this.canvas.width !== this.canvas.clientWidth || this.canvas.height !== this.canvas.clientHeight) {
-      this.canvas.width = this.canvas.clientWidth;
-      this.canvas.height = this.canvas.clientHeight;
-      this.renderer.resize(this.canvas.width, this.canvas.height);
-    }
-
-    if (this.phase === 'combat' || this.phase === 'levelup' || this.state.combatActive) {
-      this.renderer.render(this.state, interp);
-    }
+    if (this.pendingLevelUps > 0) { this.showLevelUp(); return; }
+    if (this.state.combatActive) { this.setPhase('combat'); this.push(); return; }
+    this.finishNode();
   }
-}
 
-function distToLine(a: Vec2, b: Vec2, p: Vec2): number {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) return dist(a, p);
-  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
-  t = Math.max(0, Math.min(1, t));
-  const closest = { x: a.x + t * dx, y: a.y + t * dy };
-  return dist(closest, p);
+  confirmEncounterLoot(): void {
+    this.state.encounterLoot = [];
+    this.engine?.rebuildSkills();
+    if (this.pendingLevelUps > 0) { this.showLevelUp(); return; }
+    this.finishNode();
+  }
+
+  applyRecovery(): void {
+    const p = this.state.player;
+    p.hp = Math.min(p.maxHp, p.hp + Math.ceil(p.maxHp * 0.35));
+    this.finishNode();
+  }
+
+  applyEvent(choice: number): void {
+    const p = this.state.player;
+    if (choice === 0) p.essence += 25;
+    else if (choice === 1) { p.maxHp += 12; p.hp += 12; }
+    else { p.armor += 1; }
+    this.finishNode();
+  }
+
+  completeNode(): void { this.finishNode(); }
+
+  private finishNode(): void {
+    completeCurrentNode(this.state);
+    this.state.combatActive = false;
+
+    if (this.state.runComplete) {
+      this.setPhase(this.state.runWon ? 'victory' : 'defeat');
+      this.callbacks.onRunEnd(this.state.runWon);
+      this.push();
+      return;
+    }
+    this.setPhase('map');
+    this.push();
+  }
+
+  showBuildSummary(): void { this.setPhase('build_summary'); }
+
+  useInventoryItem(itemId: string): void {
+    const inv = this.state.player.inventory;
+    const idx = inv.findIndex(i => i.id === itemId);
+    if (idx < 0) return;
+    const item = inv[idx];
+    const p = this.state.player;
+
+    if (item.effect === 'heal') {
+      p.hp = Math.min(p.maxHp, p.hp + item.value);
+      if (this.engine) {
+        this.engine.player.hp = Math.min(this.engine.player.maxHp, this.engine.player.hp + item.value);
+      }
+    } else if (item.effect === 'resource') {
+      p.resource = Math.min(p.maxResource, p.resource + item.value);
+    }
+
+    item.charges -= 1;
+    if (item.charges <= 0) inv.splice(idx, 1);
+    this.push();
+  }
+
+  // --- UI queries -----------------------------------------------
+
+  actionBar(): ActionBarState | null {
+    if (!this.engine) return null;
+    return {
+      actions: this.engine.availableActions(),
+      selectedId: this.selectedActionId,
+      form: this.engine.form,
+    };
+  }
+
+  /** Who acts next, and how soon, in Beats. The player's planning aid. */
+  turnOrder(limit = 6): TurnOrderEntry[] {
+    const e = this.engine;
+    if (!e) return [];
+    const clock = e.ctx.clock;
+    return e.ctx.actors
+      .filter(a => a.alive && a.id !== 'player')
+      .map(a => ({
+        id: a.id,
+        name: a.name,
+        inBeats: Math.max(0, Math.round(a.nextActAt - clock)),
+        isPlayer: false,
+        intentLabel: a.intent?.label ?? 'Idle',
+        dangerous: a.intent?.kind === 'attack' || a.intent?.kind === 'hazard',
+        hp: Math.ceil(a.hp),
+        maxHp: a.maxHp,
+      }))
+      .sort((a, b) => a.inBeats - b.inBeats)
+      .slice(0, limit);
+  }
+
+  /** Description of whatever the pointer is over, for the inspector panel. */
+  inspect(): { title: string; lines: string[] } | null {
+    const e = this.engine;
+    if (!e || !this.hoverTile) return null;
+    const t = this.hoverTile;
+    const lines: string[] = [];
+
+    const actor = e.ctx.actors.find(a => a.alive && a.tile.x === t.x && a.tile.y === t.y);
+    const terrain = e.ctx.grid.info(t.x, t.y);
+    const threat = e.threatenedTiles().get(tileKey(t));
+
+    if (actor) {
+      lines.push(`${Math.ceil(actor.hp)} / ${actor.maxHp} HP`);
+      if (actor.faction === 'enemy') {
+        lines.push(`Acts every ${actor.actSpeed} Beats`);
+        if (actor.intent) lines.push(`Next: ${actor.intent.label}`);
+      }
+      const st = Object.keys(actor.statuses);
+      if (st.length) lines.push(`Afflicted: ${st.join(', ')}`);
+    }
+
+    lines.push(terrain.description);
+    if (threat) lines.push(`Incoming here: ${threat.damage} damage (${threat.sources.join(', ')})`);
+    if (!actor && e.canMoveTo(t).ok) lines.push(`Step here: ${e.moveCost(t)} Beats`);
+
+    return { title: actor ? actor.name : terrain.name, lines };
+  }
+
+  availableNodes() { return getAvailableNodes(this.state); }
+
+  private push(): void {
+    this.callbacks.onStateUpdate(this.state);
+    this.callbacks.onTacticalUpdate(this.engine ? this.engine.snapshot() : null);
+  }
 }

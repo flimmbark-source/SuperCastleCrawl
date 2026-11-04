@@ -90,6 +90,8 @@ export type RoomOutcome = 'ongoing' | 'cleared' | 'defeat';
 
 /** Beats a room may go without a kill before Delve Pressure rises a step. */
 export const PRESSURE_INTERVAL = 18;
+/** Grace at the start of a room, so simply crossing it costs nothing. */
+export const PRESSURE_GRACE = 14;
 
 export interface RoomStats {
   beatsSpent: number;
@@ -186,7 +188,7 @@ export class TacticalEngine {
     this.ctx.clock = 0;
     this.ctx.killedThisResolution = [];
     this.ctx.pressure = 0;
-    this.beatsSinceKill = 0;
+    this.beatsSinceKill = -PRESSURE_GRACE;
     this.syncOwnedFromMeta();
     this.ctx.owned.flags = {
       damageScalar: this.meta.damageScalar,
@@ -268,7 +270,7 @@ export class TacticalEngine {
       layoutName: this.layoutName,
       stats: this.stats,
       pressure: this.ctx.pressure,
-      beatsToPressure: Math.max(0, PRESSURE_INTERVAL - this.beatsSinceKill),
+      beatsToPressure: Math.max(0, Math.round(PRESSURE_INTERVAL - this.beatsSinceKill)),
     };
   }
 
@@ -402,6 +404,29 @@ export class TacticalEngine {
       .filter(t => this.ctx.grid.inBounds(t.x, t.y));
   }
 
+  /**
+   * Why the player cannot attack right now, stated accurately. Distinguishing
+   * "out of range" from "behind cover" matters, because the two call for
+   * opposite moves: close in, or step sideways for an angle.
+   */
+  private attackBlockedReason(): string | undefined {
+    if (this.attackableTiles().length > 0) return undefined;
+    const enemies = livingEnemies(this.ctx);
+    if (!enemies.length) return 'Nothing left standing';
+
+    const f = FORM[this.form];
+    const nearest = enemies.reduce((best, e) =>
+      tileDist(this.player.tile, e.tile) < tileDist(this.player.tile, best.tile) ? e : best,
+      enemies[0]);
+    const d = tileDist(this.player.tile, nearest.tile);
+
+    if (d > f.range) return `Out of range — ${f.attackLabel} reaches ${f.range}`;
+    if (this.ctx.grid.get(nearest.tile.x, nearest.tile.y) === 'bramble') {
+      return 'Target is hidden in bramble';
+    }
+    return 'No clear line of fire';
+  }
+
   availableActions(): PlayerActionOption[] {
     const out: PlayerActionOption[] = [];
     out.push({
@@ -416,7 +441,7 @@ export class TacticalEngine {
         ? `Sweep the tile in front of you and both tiles beside it for ${f.damage}, shoving survivors back.`
         : `Strike one target up to ${f.range} tiles away for ${f.damage}. Needs a clear line of fire.`,
       tags: [...f.tags],
-      disabledReason: this.attackableTiles().length ? undefined : 'Nothing in range',
+      disabledReason: this.attackBlockedReason(),
     });
 
     this.skills.forEach(s => {

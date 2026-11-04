@@ -324,8 +324,13 @@ export interface MapNode {
   id: string;
   floor: number;
   index: number;
+  /** Depth into the floor. Nodes in the same column are alternative routes. */
+  column: number;
+  /** Vertical slot within the column, for layout. */
+  row: number;
   type: NodeType;
   completed: boolean;
+  /** Ids of the nodes this one leads to. Real branching, not a corridor. */
   connections: string[];
   enemies?: string[];
   rewards?: string[];
@@ -349,6 +354,10 @@ export interface RunState {
   seed: number;
   floor: number;
   currentNodeIndex: number;
+  /** The node the player currently occupies. Drives the branching route. */
+  currentNodeId: string;
+  /** Nodes the player may move to next. */
+  availableNodeIds: string[];
   maps: FloorMap[];
   player: PlayerEntity;
   entities: Entity[];

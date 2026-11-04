@@ -1,246 +1,217 @@
+// ============================================================
+// Glyphdelve - Build & Log Panel
+//
+// Collapsed by default during a fight: the board and the telegraphs are what
+// matter moment to moment, and a permanently-expanded panel was covering the
+// play area in the original build.
+// ============================================================
+
 import React, { useState } from 'react';
-import type { RunState, PlayerEntity, CombatLogEntry, ActiveItem, InventoryItem } from '../../types';
+import type { RunState } from '../../types';
+import type { TacticalSnapshot } from '../../core/tactical';
+import { T, panel, label, RARITY } from '../theme';
 import { inventoryItemIcon } from '../itemPresentation';
 
-interface SidePanelProps {
+interface Props {
   state: RunState;
+  snapshot?: TacticalSnapshot | null;
   onUseInventoryItem: (itemId: string) => void;
 }
 
-export const SidePanel: React.FC<SidePanelProps> = ({ state, onUseInventoryItem }) => {
-  const [collapsed, setCollapsed] = useState(false);
-  const [tab, setTab] = useState<'tags' | 'log' | 'build'>('build');
+type Tab = 'build' | 'tags' | 'log';
 
-  if (collapsed) {
+export const SidePanel: React.FC<Props> = ({ state, snapshot, onUseInventoryItem }) => {
+  const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<Tab>('build');
+  const p = state.player;
+
+  if (!open) {
     return (
-      <button style={styles.expandBtn} onClick={() => setCollapsed(false)}>
-        ◀
+      <button style={tabBtn} onClick={() => setOpen(true)} aria-label="Open build panel">
+        ◀ BUILD
       </button>
     );
   }
 
   return (
-    <div style={styles.panel}>
-      <div style={styles.header}>
-        <div style={styles.tabs}>
-          {(['build', 'tags', 'log'] as const).map(t => (
+    <div style={wrap}>
+      <div style={header}>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {(['build', 'tags', 'log'] as Tab[]).map(t => (
             <button
               key={t}
-              style={{ ...styles.tab, backgroundColor: tab === t ? '#2e7d32' : 'transparent' }}
               onClick={() => setTab(t)}
+              style={{
+                ...tabChip,
+                background: tab === t ? 'rgba(255,213,79,0.14)' : 'transparent',
+                color: tab === t ? T.beat : T.textMuted,
+                borderColor: tab === t ? 'rgba(255,213,79,0.4)' : 'transparent',
+              }}
             >
               {t}
             </button>
           ))}
         </div>
-        <button style={styles.collapseBtn} onClick={() => setCollapsed(true)}>▶</button>
+        <button style={closeBtn} onClick={() => setOpen(false)} aria-label="Close panel">▶</button>
       </div>
 
-      <div style={styles.content}>
-        {tab === 'build' && <BuildTab player={state.player} state={state} onUseInventoryItem={onUseInventoryItem} />}
-        {tab === 'tags' && <TagsTab player={state.player} />}
-        {tab === 'log' && <LogTab log={state.combatLog} />}
-      </div>
-    </div>
-  );
-};
+      <div style={body}>
+        {tab === 'build' && (
+          <>
+            <Section title={`Skills ${p.skills.length}/${p.maxSkillSlots}`}>
+              {p.skills.map((s, i) => (
+                <Row
+                  key={s.def.id}
+                  left={`${i + 1}. ${s.def.name}`}
+                  right={s.def.tags.slice(0, 2).join(' ')}
+                  hint={s.def.triggerSentence}
+                />
+              ))}
+            </Section>
 
-const BuildTab: React.FC<{ player: PlayerEntity; state: RunState; onUseInventoryItem: (itemId: string) => void }> = ({ player, state, onUseInventoryItem }) => (
-  <InventorySection player={player} state={state} onUseInventoryItem={onUseInventoryItem} />
-);
+            <Section title={`Passives ${p.passives.length}`} empty="None yet.">
+              {p.passives.map(x => (
+                <Row key={x.def.id} left={x.def.name} right="" hint={x.def.triggerSentence} />
+              ))}
+            </Section>
 
-const InventorySection: React.FC<{ player: PlayerEntity; state: RunState; onUseInventoryItem: (itemId: string) => void }> = ({ player, state, onUseInventoryItem }) => {
-  const [tooltip, setTooltip] = useState<{ item: InventoryItem; x: number; y: number } | null>(null);
+            <Section title={`Items ${p.items.length}`} empty="Nothing equipped.">
+              {p.items.map((x, i) => (
+                <Row
+                  key={`${x.def.id}_${i}`}
+                  left={x.def.name}
+                  right={x.def.rarity}
+                  rightColour={RARITY[x.def.rarity]}
+                  hint={x.def.triggerSentence}
+                />
+              ))}
+            </Section>
 
-  return (
-    <div style={styles.buildTab}>
-    <div style={styles.buildSection}>
-      <h4 style={styles.sectionTitle}>Skills ({player.skills.length}/{player.maxSkillSlots})</h4>
-      {player.skills.map(s => (
-        <div key={s.def.id} style={styles.buildItem} title={`${s.def.description}\n${s.def.triggerSentence}`}>
-          <span style={styles.buildItemName}>{s.def.name}</span>
-          <span style={styles.buildItemTags}>{s.def.tags.slice(0, 2).join(', ')}</span>
-        </div>
-      ))}
-    </div>
-    <div style={styles.buildSection}>
-      <h4 style={styles.sectionTitle}>Passives ({player.passives.length})</h4>
-      {player.passives.map(p => (
-        <div key={p.def.id} style={styles.buildItem} title={`${p.def.description}\n${p.def.triggerSentence}`}>
-          <span style={styles.buildItemName}>{p.def.name}</span>
-          <span style={styles.buildItemTags}>{p.def.tags.slice(0, 2).join(', ')}</span>
-        </div>
-      ))}
-    </div>
-    <div style={styles.buildSection}>
-      <h4 style={styles.sectionTitle}>Items ({player.items.length})</h4>
-      {player.items.map(i => (
-        <div key={i.def.id} style={styles.itemCard} title={buildEquippedItemTooltip(i)}>
-          <div style={styles.buildItem}>
-            <span style={styles.buildItemName}>{i.def.name}</span>
-            <span style={styles.buildItemRarity}>[{i.def.rarity}]</span>
-          </div>
-          <div style={styles.itemDescription}>{buildItemEffectSummary(i)}</div>
-        </div>
-      ))}
-      {player.items.length === 0 && <p style={styles.emptyText}>No equipped items yet</p>}
-    </div>
-      <div style={styles.buildSection}>
-        <h4 style={styles.sectionTitle}>Inventory ({player.inventory.length})</h4>
-        <div style={styles.inventoryContainer}>
-          {player.inventory.length === 0 && <p style={styles.emptyText}>No consumables in pack</p>}
-          {player.inventory.map(item => (
-            <button
-              key={item.id}
-              style={styles.inventoryButton}
-              onClick={() => onUseInventoryItem(item.id)}
-              onMouseEnter={(e) => setTooltip({ item, x: e.clientX, y: e.clientY })}
-              onMouseMove={(e) => setTooltip({ item, x: e.clientX, y: e.clientY })}
-              onMouseLeave={() => setTooltip(null)}
-            >
-              <div style={styles.inventoryHeader}>
-                <span style={styles.inventoryIcon}>{inventoryItemIcon(item)}</span>
-                <span style={styles.inventoryName}>{item.name}</span>
+            <Section title={`Pack ${p.inventory.length}`} empty="No consumables.">
+              {p.inventory.map(it => (
+                <button
+                  key={it.id}
+                  style={useBtn}
+                  onClick={() => onUseInventoryItem(it.id)}
+                  title={it.description}
+                >
+                  <span>{inventoryItemIcon(it)} {it.name}</span>
+                  <span style={{ color: T.textFaint }}>×{it.charges}</span>
+                </button>
+              ))}
+            </Section>
+          </>
+        )}
+
+        {tab === 'tags' && (
+          <Section title="Build affinity" empty="Pick something to start shaping a build.">
+            {[...p.buildTags.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .map(([t, n]) => (
+                <div key={t} style={{ marginBottom: 5 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                    <span style={{ color: T.text }}>{t}</span>
+                    <span style={{ color: T.textFaint }}>{n}</span>
+                  </div>
+                  <div style={{ height: 3, background: 'rgba(0,0,0,0.4)', borderRadius: 2, marginTop: 2 }}>
+                    <div style={{
+                      height: 3, borderRadius: 2, background: T.info,
+                      width: `${Math.min(100, n * 20)}%`,
+                    }} />
+                  </div>
+                </div>
+              ))}
+            <div style={{ ...label, marginTop: 8, lineHeight: 1.6, textTransform: 'none', letterSpacing: 0 }}>
+              Level-up offers lean toward the tags you already have.
+            </div>
+          </Section>
+        )}
+
+        {tab === 'log' && (
+          <Section title="Room log" empty="Nothing has happened yet.">
+            {(snapshot?.log ?? []).slice(-60).reverse().map((l, i) => (
+              <div
+                key={i}
+                style={{
+                  fontSize: 10.5, lineHeight: 1.5, marginBottom: 2,
+                  color: l.important ? T.beat
+                    : l.kind === 'damage' ? T.textMuted
+                    : l.kind === 'kill' ? T.threat
+                    : l.kind === 'heal' ? T.good
+                    : T.textFaint,
+                }}
+              >
+                <span style={{ color: T.textFaint }}>{l.beat}▸ </span>{l.text}
               </div>
-              <span style={styles.inventoryDesc}>{item.description}</span>
-              <span style={styles.inventoryEffect}>{inventoryEffectSummary(item)} · x{item.charges}</span>
-            </button>
-          ))}
-        </div>
+            ))}
+          </Section>
+        )}
       </div>
-    <div style={styles.buildSection}>
-      <h4 style={styles.sectionTitle}>Active Summons</h4>
-      <span style={styles.summonCount}>
-        {state.entities.filter(e => e.type === 'summon' && e.alive).length} / 8
-      </span>
-    </div>
-      {tooltip && (
-        <div style={{ ...styles.inventoryTooltip, left: tooltip.x + 10, top: tooltip.y + 10 }}>
-          <div style={styles.inventoryTooltipTitle}>{inventoryItemIcon(tooltip.item)} {tooltip.item.name}</div>
-          <div style={styles.inventoryTooltipBody}>{tooltip.item.description}</div>
-          <div style={styles.inventoryTooltipBody}>{inventoryEffectSummary(tooltip.item)}</div>
-          <div style={styles.inventoryTooltipCharges}>Charges: {tooltip.item.charges}</div>
-        </div>
-      )}
     </div>
   );
 };
 
-const TagsTab: React.FC<{ player: PlayerEntity }> = ({ player }) => {
-  const tags = Array.from(player.buildTags.entries()).sort((a, b) => b[1] - a[1]);
+const Section: React.FC<{ title: string; empty?: string; children?: React.ReactNode }> = ({
+  title, empty, children,
+}) => {
+  const has = React.Children.count(children) > 0;
   return (
-    <div style={styles.tagsTab}>
-      {tags.length === 0 && <p style={styles.emptyText}>No tags yet</p>}
-      {tags.map(([tag, count]) => (
-        <div key={tag} style={styles.tagRow}>
-          <span style={styles.tagName}>{tag}</span>
-          <div style={styles.tagBar}>
-            <div style={{ ...styles.tagBarFill, width: `${Math.min(100, count * 15)}%` }} />
-          </div>
-          <span style={styles.tagCount}>{count}</span>
-        </div>
-      ))}
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ ...label, marginBottom: 4 }}>{title}</div>
+      {has ? children : <div style={{ fontSize: 10.5, color: T.textFaint }}>{empty}</div>}
     </div>
   );
 };
 
-const LogTab: React.FC<{ log: CombatLogEntry[] }> = ({ log }) => (
-  <div style={styles.logTab}>
-    {log.slice(-30).reverse().map((entry, i) => (
-      <div key={i} style={styles.logEntry}>
-        <span style={{ ...styles.logType, color: LOG_COLORS[entry.type] || '#888' }}>
-          [{entry.type}]
-        </span>
-        <span style={styles.logDetails}>{entry.details}</span>
-      </div>
-    ))}
+const Row: React.FC<{
+  left: string; right: string; hint?: string; rightColour?: string;
+}> = ({ left, right, hint, rightColour }) => (
+  <div style={row} title={hint}>
+    <span style={{ color: T.text, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      {left}
+    </span>
+    <span style={{ color: rightColour ?? T.textFaint, fontSize: 9, flexShrink: 0 }}>{right}</span>
   </div>
 );
 
-function buildItemEffectSummary(item: ActiveItem): string {
-  if (item.def.effects.length === 0) return item.def.description;
-  return item.def.effects.map(effect => {
-    if (effect.type === 'stat_mod' && effect.stat) {
-      const amt = effect.percent ? `${Math.round((effect.value || 0) * 100)}%` : `${effect.value || 0}`;
-      return `${effect.stat.replaceAll('_', ' ')} +${amt}`;
-    }
-    if (effect.type === 'trigger' && effect.trigger) {
-      return `${effect.trigger.event}: ${effect.trigger.effect.replaceAll('_', ' ')}`;
-    }
-    if (effect.description) return effect.description;
-    return effect.type;
-  }).join(' · ');
-}
-
-function buildEquippedItemTooltip(item: ActiveItem): string {
-  return `${item.def.name}\n${item.def.description}\n${buildItemEffectSummary(item)}`;
-}
-
-function inventoryEffectSummary(item: InventoryItem): string {
-  if (item.effect === 'heal') return `Restore ${item.value} HP`;
-  if (item.effect === 'resource') return `Restore ${item.value} Resource`;
-  return 'Cleanse negative effects';
-}
-
-const LOG_COLORS: Record<string, string> = {
-  damage: '#ef5350',
-  heal: '#4caf50',
-  kill: '#ff9800',
-  trigger: '#81d4fa',
-  summon: '#66bb6a',
-  drop: '#ffd54f',
-  levelup: '#e040fb',
-  meld: '#ab47bc',
+const wrap: React.CSSProperties = {
+  ...panel, position: 'absolute', top: 12, right: 228,
+  width: 236, maxHeight: 'calc(100vh - 120px)',
+  display: 'flex', flexDirection: 'column', zIndex: 19,
 };
 
-const styles: Record<string, React.CSSProperties> = {
-  panel: { position: 'absolute', top: 8, right: 8, width: 248, maxHeight: 'calc(100vh - 80px)', backgroundColor: 'rgba(13,13,26,0.92)', borderRadius: 8, border: '1px solid #333', zIndex: 10, display: 'flex', flexDirection: 'column', overflow: 'hidden' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px', borderBottom: '1px solid #333' },
-  tabs: { display: 'flex', gap: 2 },
-  tab: { padding: '3px 8px', border: 'none', borderRadius: 3, color: '#ccc', fontFamily: 'monospace', fontSize: 10, cursor: 'pointer', textTransform: 'capitalize' },
-  collapseBtn: { background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 12, padding: '2px 4px' },
-  expandBtn: { position: 'absolute', top: 8, right: 8, background: 'rgba(13,13,26,0.9)', border: '1px solid #333', borderRadius: 4, color: '#666', cursor: 'pointer', fontSize: 14, padding: '4px 8px', zIndex: 10 },
-  content: { padding: 8, overflowY: 'auto', flex: 1 },
-  buildTab: { display: 'flex', flexDirection: 'column', gap: 8 },
-  buildSection: {},
-  sectionTitle: { fontSize: 10, color: '#81d4fa', fontFamily: 'monospace', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: 1 },
-  buildItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0', gap: 8 },
-  buildItemName: { fontSize: 10, color: '#ccc', fontFamily: 'monospace' },
-  buildItemTags: { fontSize: 8, color: '#666', fontFamily: 'monospace' },
-  buildItemRarity: { fontSize: 8, color: '#888', fontFamily: 'monospace' },
-  itemCard: { border: '1px solid #2e3446', borderRadius: 4, padding: '4px 6px', marginBottom: 4, backgroundColor: 'rgba(255,255,255,0.02)' },
-  itemDescription: { fontSize: 9, color: '#97a2bd', fontFamily: 'monospace', lineHeight: 1.25 },
-  inventoryContainer: { display: 'flex', flexDirection: 'column', gap: 6 },
-  inventoryButton: { border: '1px solid #455a64', backgroundColor: 'rgba(38, 50, 56, 0.45)', borderRadius: 4, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 2, padding: '6px', cursor: 'pointer' },
-  inventoryHeader: { display: 'flex', alignItems: 'center', gap: 6 },
-  inventoryIcon: { fontSize: 14, lineHeight: 1 },
-  inventoryName: { fontSize: 10, color: '#e0f2f1', fontFamily: 'monospace', fontWeight: 'bold' },
-  inventoryDesc: { fontSize: 9, color: '#9fb0c9', fontFamily: 'monospace' },
-  inventoryEffect: { fontSize: 9, color: '#c5e1a5', fontFamily: 'monospace' },
-  inventoryTooltip: {
-    position: 'fixed',
-    maxWidth: 220,
-    backgroundColor: 'rgba(10, 14, 25, 0.96)',
-    border: '1px solid #415073',
-    borderRadius: 6,
-    padding: '6px 7px',
-    zIndex: 160,
-    pointerEvents: 'none',
-    boxShadow: '0 3px 10px rgba(0,0,0,0.35)',
-  },
-  inventoryTooltipTitle: { color: '#e4ecff', fontFamily: 'monospace', fontSize: 10, marginBottom: 4 },
-  inventoryTooltipBody: { color: '#b3c1dd', fontFamily: 'monospace', fontSize: 9, lineHeight: 1.25 },
-  inventoryTooltipCharges: { color: '#c5e1a5', fontFamily: 'monospace', fontSize: 9, marginTop: 4 },
-  summonCount: { fontSize: 12, color: '#66bb6a', fontFamily: 'monospace' },
-  tagsTab: { display: 'flex', flexDirection: 'column', gap: 4 },
-  emptyText: { fontSize: 10, color: '#555', fontFamily: 'monospace', margin: 0 },
-  tagRow: { display: 'flex', alignItems: 'center', gap: 4 },
-  tagName: { fontSize: 10, color: '#bbb', fontFamily: 'monospace', minWidth: 55 },
-  tagBar: { flex: 1, height: 6, backgroundColor: '#1a1a2e', borderRadius: 2, overflow: 'hidden' },
-  tagBarFill: { height: '100%', backgroundColor: '#4fc3f7', borderRadius: 2, transition: 'width 0.3s' },
-  tagCount: { fontSize: 9, color: '#888', fontFamily: 'monospace', minWidth: 14, textAlign: 'right' },
-  logTab: { display: 'flex', flexDirection: 'column', gap: 2 },
-  logEntry: { display: 'flex', gap: 4, alignItems: 'flex-start' },
-  logType: { fontSize: 8, fontFamily: 'monospace', minWidth: 48, textTransform: 'uppercase' },
-  logDetails: { fontSize: 9, color: '#999', fontFamily: 'monospace', lineHeight: 1.3 },
+const header: React.CSSProperties = {
+  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+  padding: '7px 8px', borderBottom: `1px solid ${T.line}`,
+};
+
+const body: React.CSSProperties = { padding: '9px 10px', overflowY: 'auto' };
+
+const tabChip: React.CSSProperties = {
+  padding: '3px 9px', border: '1px solid transparent', borderRadius: 4,
+  fontFamily: T.mono, fontSize: 10, cursor: 'pointer', textTransform: 'uppercase',
+  letterSpacing: 0.8, background: 'transparent',
+};
+
+const closeBtn: React.CSSProperties = {
+  background: 'transparent', border: 'none', color: T.textFaint,
+  cursor: 'pointer', fontSize: 11, fontFamily: T.mono,
+};
+
+const tabBtn: React.CSSProperties = {
+  position: 'absolute', top: 12, right: 228,
+  ...panel, padding: '6px 10px', fontSize: 10, letterSpacing: 1,
+  color: T.textMuted, cursor: 'pointer', zIndex: 19,
+};
+
+const row: React.CSSProperties = {
+  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+  gap: 6, padding: '3px 5px', marginBottom: 2,
+  background: 'rgba(255,255,255,0.03)', borderRadius: 3,
+  fontFamily: T.mono,
+};
+
+const useBtn: React.CSSProperties = {
+  ...row, width: '100%', border: `1px solid ${T.line}`,
+  cursor: 'pointer', color: T.text, fontSize: 11,
 };

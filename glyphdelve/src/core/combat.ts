@@ -426,16 +426,15 @@ export function shove(
     }
 
     if (!ctx.grid.isPassable(next.x, next.y)) {
-      // Slammed into a wall: the blocked momentum becomes damage.
-      if (moved === 0 || true) {
-        const impact = 3 + moved * 2;
-        fx(ctx, { kind: 'burst', tile: target.tile, colour: '#b0bec5', lifeMs: 380, radius: 0 });
-        logLine(ctx, 'trigger', `${target.name} slams into ${ctx.grid.info(next.x, next.y).name}`);
-        dealDamage(ctx, {
-          attacker: source, target, amount: impact,
-          type: 'physical', tags: ['Physical'], silentTriggers: true,
-        });
-      }
+      // Slammed into a wall: the blocked momentum becomes damage, and the
+      // further it was already travelling, the harder it lands.
+      const impact = 3 + moved * 2;
+      fx(ctx, { kind: 'burst', tile: target.tile, colour: '#b0bec5', lifeMs: 380, radius: 0 });
+      logLine(ctx, 'trigger', `${target.name} slams into ${ctx.grid.info(next.x, next.y).name}`);
+      dealDamage(ctx, {
+        attacker: source, target, amount: impact,
+        type: 'physical', tags: ['Physical'], silentTriggers: true,
+      });
       return;
     }
 

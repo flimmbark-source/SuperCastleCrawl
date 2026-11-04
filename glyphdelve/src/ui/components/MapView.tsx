@@ -1,233 +1,192 @@
-import React from 'react';
-import type { FloorMap, NodeType } from '../../types';
+// ============================================================
+// Glyphdelve - Delve Route
+//
+// A branching graph, not a corridor. The route is a decision made before the
+// fight: the elite pays better but costs health you may not get back, and the
+// spring and the shrine are rarely on the same path.
+// ============================================================
 
-interface MapViewProps {
-  maps: FloorMap[];
-  currentFloor: number;
-  currentNodeIndex: number;
-  onEnterNode: () => void;
+import React, { useState } from 'react';
+import type { FloorMap, MapNode, NodeType } from '../../types';
+import { T, panel, label } from '../theme';
+
+interface Props {
+  map: FloorMap;
+  currentNodeId: string;
+  availableNodeIds: string[];
+  floor: number;
+  onTravel: (nodeId: string) => void;
   onShowBuildSummary: () => void;
 }
 
-const NODE_ICONS: Record<NodeType, string> = {
-  combat: '⚔',
-  elite: '⬟',
-  shrine: '◆',
-  recovery: '✚',
-  event: '◌',
-  boss: '☠',
+const ICON: Record<NodeType, string> = {
+  combat: '⚔', elite: '⬟', shrine: '◆', recovery: '✚', event: '◌', boss: '☠',
 };
 
-const NODE_PATTERNS: Record<NodeType, string> = {
-  combat: '////',
-  elite: '▦',
-  shrine: '◇◇',
-  recovery: '++',
-  event: '···',
-  boss: 'XX',
+const COLOUR: Record<NodeType, string> = {
+  combat: '#ef9a9a', elite: '#ffb74d', shrine: '#ce93d8',
+  recovery: '#81c784', event: '#4fc3f7', boss: '#f06292',
 };
 
-const NODE_COLORS: Record<NodeType, string> = {
-  combat: '#ef9a9a',
-  elite: '#ffcc80',
-  shrine: '#ce93d8',
-  recovery: '#a5d6a7',
-  event: '#90caf9',
-  boss: '#f48fb1',
+const BLURB: Record<NodeType, string> = {
+  combat: 'A standard pack. Loot and experience.',
+  elite: 'Tougher, armoured, hits harder — and always drops an item.',
+  shrine: 'Meld two things you own into one hybrid.',
+  recovery: 'Recover 35% of your health.',
+  event: 'A choice: essence, vitality, or armour.',
+  boss: 'The floor guardian and its escort.',
 };
 
-export const MapView: React.FC<MapViewProps> = ({ maps, currentFloor, currentNodeIndex, onEnterNode, onShowBuildSummary }) => {
-  const currentMap = maps[currentFloor - 1];
-  if (!currentMap) return null;
+const CELL_W = 118;
+const CELL_H = 86;
+const PAD_X = 44;
+const PAD_Y = 34;
+
+export const MapView: React.FC<Props> = ({
+  map, currentNodeId, availableNodeIds, floor, onTravel, onShowBuildSummary,
+}) => {
+  const [hover, setHover] = useState<MapNode | null>(null);
+
+  const columns = Math.max(...map.nodes.map(n => n.column)) + 1;
+  const rowsPerCol: number[] = [];
+  for (let c = 0; c < columns; c++) {
+    rowsPerCol[c] = map.nodes.filter(n => n.column === c).length;
+  }
+  const maxRows = Math.max(...rowsPerCol);
+
+  const width = PAD_X * 2 + (columns - 1) * CELL_W + 72;
+  const height = PAD_Y * 2 + (maxRows - 1) * CELL_H + 72;
+
+  const pos = (n: MapNode) => {
+    const count = rowsPerCol[n.column];
+    const offset = (maxRows - count) / 2;
+    return {
+      x: PAD_X + n.column * CELL_W + 36,
+      y: PAD_Y + (n.row + offset) * CELL_H + 36,
+    };
+  };
+
+  const byId = new Map(map.nodes.map(n => [n.id, n]));
 
   return (
-    <div style={styles.container}>
-      <div style={styles.ambientVignette} />
-      <div style={styles.gridTexture} />
+    <div style={overlay}>
+      <div style={{ ...panel, padding: 18, maxWidth: '96vw', maxHeight: '92vh', overflow: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 24 }}>
+          <div>
+            <div style={{ fontFamily: T.mono, fontSize: 19, color: T.text, letterSpacing: 2 }}>
+              DELVE ROUTE · FLOOR {floor}
+            </div>
+            <div style={{ fontFamily: T.mono, fontSize: 11, color: T.textMuted, marginTop: 3 }}>
+              Choose where to go next. Paths diverge — you cannot take every room.
+            </div>
+          </div>
+          <button style={btn} onClick={onShowBuildSummary}>Build</button>
+        </div>
 
-      <div style={styles.headerCard}>
-        <h2 style={styles.title}>Delving Route · Floor {currentFloor}</h2>
-        <p style={styles.subtitle}>Turn flow: You act once, then enemies each act once.</p>
-        <p style={styles.subtitleMuted}>Orthographic route planner with low-contrast stone backdrop for clarity-first tactical reading.</p>
-      </div>
+        <div style={{ position: 'relative', width, height, marginTop: 14 }}>
+          <svg width={width} height={height} style={{ position: 'absolute', inset: 0 }}>
+            {map.nodes.flatMap(n =>
+              n.connections.map(cid => {
+                const to = byId.get(cid);
+                if (!to) return null;
+                const a = pos(n);
+                const b = pos(to);
+                const live = n.id === currentNodeId && availableNodeIds.includes(cid);
+                return (
+                  <path
+                    key={`${n.id}->${cid}`}
+                    d={`M ${a.x + 28} ${a.y} C ${a.x + 62} ${a.y}, ${b.x - 62} ${b.y}, ${b.x - 28} ${b.y}`}
+                    fill="none"
+                    stroke={live ? T.beat : n.completed ? T.lineStrong : T.line}
+                    strokeWidth={live ? 2.5 : 1.5}
+                    strokeDasharray={live ? undefined : '4 4'}
+                    opacity={live ? 0.95 : 0.55}
+                  />
+                );
+              }),
+            )}
+          </svg>
 
-      <div style={styles.mapRow}>
-        {currentMap.nodes.map((node, idx) => {
-          const isCurrent = idx === currentNodeIndex;
-          const isCompleted = node.completed;
-          const isLocked = idx > currentNodeIndex;
+          {map.nodes.map(n => {
+            const p = pos(n);
+            const isCurrent = n.id === currentNodeId;
+            const isAvailable = availableNodeIds.includes(n.id);
+            const dim = !isCurrent && !isAvailable && !n.completed;
 
-          return (
-            <React.Fragment key={node.id}>
-              {idx > 0 && (
-                <div
-                  style={{
-                    ...styles.connector,
-                    background: idx <= currentNodeIndex ? 'linear-gradient(90deg, #4db6ac, #a5d6a7)' : 'linear-gradient(90deg, #2c2c3c, #35354a)',
-                    opacity: isLocked ? 0.5 : 1,
-                  }}
-                />
-              )}
+            return (
               <button
+                key={n.id}
+                onClick={() => isAvailable && onTravel(n.id)}
+                onMouseEnter={() => setHover(n)}
+                onMouseLeave={() => setHover(null)}
+                disabled={!isAvailable}
+                aria-label={`${n.type} room${isAvailable ? ', available' : ''}`}
                 style={{
-                  ...styles.node,
-                  borderColor: isCurrent ? '#fff59d' : isCompleted ? '#81c784' : '#495067',
-                  backgroundColor: isCompleted
-                    ? 'rgba(129, 199, 132, 0.15)'
-                    : isCurrent
-                      ? 'rgba(255, 245, 157, 0.14)'
-                      : 'rgba(24, 24, 35, 0.93)',
-                  cursor: isCurrent ? 'pointer' : 'default',
-                  opacity: isCompleted ? 0.75 : isLocked ? 0.6 : 1,
-                  transform: isCurrent ? 'translateY(-2px) scale(1.04)' : 'scale(1)',
-                  boxShadow: isCurrent ? '0 0 0 2px rgba(255,245,157,0.2), 0 10px 20px rgba(0,0,0,0.35)' : '0 6px 12px rgba(0,0,0,0.22)',
+                  position: 'absolute',
+                  left: p.x - 32, top: p.y - 30,
+                  width: 64, height: 60,
+                  background: isAvailable ? 'rgba(255,213,79,0.09)'
+                    : n.completed ? 'rgba(255,255,255,0.03)' : T.surface,
+                  border: `2px solid ${isAvailable ? T.beat : isCurrent ? T.lineStrong : T.line}`,
+                  borderRadius: 8,
+                  cursor: isAvailable ? 'pointer' : 'default',
+                  opacity: dim ? 0.42 : 1,
+                  display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', justifyContent: 'center', gap: 2,
+                  fontFamily: T.mono,
+                  transition: 'opacity 150ms, border-color 150ms',
                 }}
-                onClick={isCurrent ? onEnterNode : undefined}
-                disabled={!isCurrent}
-                title={`${node.type} (${isCompleted ? 'completed' : isCurrent ? 'current' : 'locked'})`}
               >
-                <span style={{ ...styles.nodeIcon, color: NODE_COLORS[node.type] }}>{NODE_ICONS[node.type]}</span>
-                <span style={styles.nodeLabel}>{node.type}</span>
-                <span style={styles.nodePattern}>{NODE_PATTERNS[node.type]}</span>
-                <span style={styles.nodeIndex}>{idx + 1}</span>
-                {isCompleted && <span style={styles.checkmark}>✓</span>}
-                {isCurrent && <span style={styles.currentMarker}>▶ Enter</span>}
+                <span style={{ fontSize: 17, color: COLOUR[n.type] }}>{ICON[n.type]}</span>
+                <span style={{ fontSize: 9, color: dim ? T.textFaint : T.textMuted, letterSpacing: 0.5 }}>
+                  {n.type}
+                </span>
+                {n.completed && <span style={{ fontSize: 8, color: T.good }}>cleared</span>}
+                {isAvailable && <span style={{ fontSize: 8, color: T.beat }}>▶ enter</span>}
               </button>
-            </React.Fragment>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
 
-      <div style={styles.legend}>
-        {Object.entries(NODE_ICONS).map(([type, icon]) => (
-          <span key={type} style={styles.legendItem}>
-            <span style={{ color: NODE_COLORS[type as NodeType] }}>{icon}</span>
-            <span style={styles.legendType}>{type}</span>
-            <span style={styles.legendPattern}>{NODE_PATTERNS[type as NodeType]}</span>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
+          {(Object.keys(ICON) as NodeType[]).map(t => (
+            <span key={t} style={{ fontFamily: T.mono, fontSize: 10, color: T.textMuted }}>
+              <span style={{ color: COLOUR[t] }}>{ICON[t]}</span> {t}
+            </span>
+          ))}
+        </div>
+
+        <div style={{ ...hoverBox, visibility: hover ? 'visible' : 'hidden' }}>
+          <span style={{ color: hover ? COLOUR[hover.type] : T.text }}>
+            {hover ? ICON[hover.type] : ''} {hover?.type}
           </span>
-        ))}
-      </div>
+          <span style={{ color: T.textMuted }}>{hover ? BLURB[hover.type] : ''}</span>
+        </div>
 
-      {currentMap.nodes[currentNodeIndex]?.type === 'boss' && (
-        <button style={styles.summaryBtn} onClick={onShowBuildSummary}>Review Build Before Boss</button>
-      )}
-
-      <div style={styles.hint}>
-        {currentMap.nodes[currentNodeIndex]?.type === 'boss'
-          ? 'Boss room ahead. Verify status effects, cooldowns, and synergies before entry.'
-          : 'Select the highlighted room to continue delving.'}
-      </div>
-
-      <div style={styles.accessibilityStrip}>
-        <span>A11y: icon + pattern status cues</span>
-        <span>Reduced motion friendly transitions</span>
-        <span>Center play area intentionally clear</span>
+        <div style={{ ...label, marginTop: 6 }}>
+          {availableNodeIds.length === 1 && availableNodeIds[0] === currentNodeId
+            ? 'Enter this room to begin'
+            : availableNodeIds.length > 1
+              ? `${availableNodeIds.length} routes open — pick one`
+              : 'One way forward'}
+        </div>
       </div>
     </div>
   );
 };
 
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    background: 'radial-gradient(circle at 50% 40%, #232337 0%, #121220 70%, #0c0c18 100%)',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 50,
-    overflow: 'hidden',
-  },
-  ambientVignette: {
-    position: 'absolute',
-    inset: 0,
-    background: 'radial-gradient(circle at center, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.46) 75%)',
-    pointerEvents: 'none',
-  },
-  gridTexture: {
-    position: 'absolute',
-    inset: 0,
-    backgroundImage: 'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)',
-    backgroundSize: '48px 48px',
-    opacity: 0.35,
-    pointerEvents: 'none',
-  },
-  headerCard: {
-    backgroundColor: 'rgba(12,12,20,0.78)',
-    border: '1px solid #3a3f53',
-    borderRadius: 10,
-    padding: '14px 18px',
-    marginBottom: 18,
-    textAlign: 'center',
-  },
-  title: { fontSize: 24, color: '#e0e0e0', fontFamily: 'monospace', margin: 0, letterSpacing: 1 },
-  subtitle: { fontSize: 12, color: '#b0bec5', fontFamily: 'monospace', margin: '6px 0 2px' },
-  subtitleMuted: { fontSize: 11, color: '#6f7b8a', fontFamily: 'monospace', margin: 0 },
-  mapRow: { display: 'flex', alignItems: 'center', gap: 0, overflowX: 'auto', padding: '20px 40px', maxWidth: '96vw', zIndex: 1 },
-  connector: { width: 32, height: 4, borderRadius: 3, flexShrink: 0, transition: 'all 0.15s' },
-  node: {
-    width: 88,
-    height: 88,
-    border: '2px solid #444',
-    borderRadius: 10,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
-    position: 'relative',
-    transition: 'all 0.15s',
-    flexShrink: 0,
-    fontFamily: 'monospace',
-  },
-  nodeIcon: { fontSize: 24 },
-  nodeLabel: { fontSize: 10, color: '#b0bec5', textTransform: 'capitalize', letterSpacing: 0.4 },
-  nodePattern: { fontSize: 10, color: '#7f8aa6', letterSpacing: 0.5 },
-  nodeIndex: { position: 'absolute', top: 4, right: 6, fontSize: 9, color: '#626d86' },
-  checkmark: { position: 'absolute', top: 4, left: 6, fontSize: 11, color: '#81c784' },
-  currentMarker: {
-    position: 'absolute',
-    bottom: 4,
-    fontSize: 9,
-    color: '#fff59d',
-    letterSpacing: 0.5,
-  },
-  legend: {
-    display: 'flex',
-    gap: 14,
-    marginTop: 16,
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    maxWidth: '90vw',
-  },
-  legendItem: {
-    fontSize: 11,
-    color: '#9ea7bd',
-    fontFamily: 'monospace',
-    display: 'inline-flex',
-    gap: 6,
-    alignItems: 'center',
-    backgroundColor: 'rgba(10,10,18,0.65)',
-    border: '1px solid #31384a',
-    borderRadius: 6,
-    padding: '4px 8px',
-  },
-  legendType: { textTransform: 'capitalize' },
-  legendPattern: { color: '#7f8aa6', fontSize: 10 },
-  summaryBtn: { marginTop: 16, padding: '8px 20px', backgroundColor: '#1565c0', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, cursor: 'pointer', fontFamily: 'monospace' },
-  hint: { marginTop: 12, fontSize: 11, color: '#8a96ad', fontFamily: 'monospace', textAlign: 'center', zIndex: 1 },
-  accessibilityStrip: {
-    marginTop: 12,
-    display: 'flex',
-    gap: 10,
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    fontSize: 10,
-    color: '#657189',
-    fontFamily: 'monospace',
-  },
+const overlay: React.CSSProperties = {
+  position: 'fixed', inset: 0, background: 'rgba(7,9,14,0.92)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60,
+};
+
+const btn: React.CSSProperties = {
+  padding: '7px 16px', background: T.surfaceRaised, color: T.text,
+  border: `1px solid ${T.lineStrong}`, borderRadius: T.radius,
+  fontFamily: T.mono, fontSize: 12, cursor: 'pointer',
+};
+
+const hoverBox: React.CSSProperties = {
+  marginTop: 10, display: 'flex', gap: 10, alignItems: 'baseline',
+  fontFamily: T.mono, fontSize: 11, minHeight: 16,
 };
