@@ -52,6 +52,9 @@ export function createPlayer(): PlayerEntity {
     });
   }
 
+  // Seed the tag histogram from the starting kit. Without this the synergy
+  // rating has nothing to compare against and reports "Med" for everything.
+  updateBuildTags(player);
   return player;
 }
 

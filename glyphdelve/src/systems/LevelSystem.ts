@@ -239,19 +239,17 @@ function createOffer(
 function calculateSynergy(tags: Tag[], player: PlayerEntity): SynergyRating {
   let sharedCount = 0;
   tags.forEach(t => {
-    if (player.buildTags.has(t)) {
-      sharedCount += player.buildTags.get(t)!;
-    }
+    if (player.buildTags.has(t)) sharedCount += player.buildTags.get(t)!;
   });
 
-  if (player.buildTags.size === 0) {
-    // Level 1: everything is Medium
-    return 'Med';
-  }
+  if (player.buildTags.size === 0) return 'Med';
 
+  // Thresholds are calibrated so a card sharing most of its tags with the
+  // build reads High. The old bar (ratio >= 2) was effectively unreachable
+  // for multi-tag content, so almost everything reported Med.
   const ratio = sharedCount / Math.max(1, tags.length);
-  if (ratio >= 2) return 'High';
-  if (ratio >= 0.5) return 'Med';
+  if (ratio >= 1.0) return 'High';
+  if (ratio >= 0.4) return 'Med';
   return 'Low';
 }
 
@@ -275,6 +273,14 @@ function calculateWeight(
   const pity = 1.0 + Math.min(0.6, state.levelsWithoutHighSynergy * 0.15);
 
   // Novelty: 1.0-1.2 for underrepresented tags
+  // Summon-conditional content is close to inert without a summon skill, so
+  // weight it far down rather than offering a card that does nothing.
+  let relevance = 1.0;
+  if (tags.includes('Summon')) {
+    const hasSummonSkill = player.skills.some(sk => sk.def.tags.includes('Summon'));
+    if (!hasSummonSkill) relevance = 0.12;
+  }
+
   let novelty = 1.0;
   const representedTags = new Set(player.buildTags.keys());
   const newTags = tags.filter(t => !representedTags.has(t));
@@ -285,7 +291,7 @@ function calculateWeight(
   // RarityAdj
   const rarityAdj = rarity === 'Common' ? 1.0 : rarity === 'Uncommon' ? 0.65 : 0.35;
 
-  return baseWeight * synergy * pity * novelty * rarityAdj;
+  return baseWeight * synergy * pity * novelty * rarityAdj * relevance;
 }
 
 function weightedPickAndRemove(pool: LevelUpOffer[], rng: SeededRNG): LevelUpOffer | null {

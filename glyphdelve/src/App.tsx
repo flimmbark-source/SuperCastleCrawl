@@ -80,6 +80,11 @@ const App: React.FC = () => {
     }, settings);
 
     gameRef.current = game;
+    // Dev-only handle, used by the automated playtest scripts to drive and
+    // inspect a run. Not present in a production build.
+    if (import.meta.env.DEV) {
+      (window as unknown as { __game?: Game }).__game = game;
+    }
     if (canvasRef.current) game.attachCanvas(canvasRef.current);
     game.start();
     setState({ ...game.state });

@@ -75,3 +75,24 @@ describe('shrine melding', () => {
     expect(executeMeld(s, inputs[0], inputs[1], 'skill_skill', preview)).toBe(false);
   });
 });
+
+describe('shrine melding guards', () => {
+  it('refuses to meld a thing with itself', () => {
+    // Both inputs are removed by id, so a self-meld would consume one copy
+    // and hand back a free upgrade.
+    ensureRegistry();
+    const s = createRunState(123);
+    const def = registry.getSkill('spore_bolt')!;
+    s.player.skills.push({ def, cooldownRemaining: 0, level: 1, upgraded: false });
+    s.player.essence = 500;
+
+    const inputs = getMeldableItems(s, 'skill_skill');
+    const same = inputs.find(i => i.id === 'spore_bolt')!;
+    const preview = previewMeld(s, same, same, 'skill_skill');
+
+    expect(preview.possible).toBe(false);
+    expect(preview.reason).toMatch(/different/i);
+    expect(executeMeld(s, same, same, 'skill_skill', preview)).toBe(false);
+    expect(s.player.essence).toBe(500);
+  });
+});

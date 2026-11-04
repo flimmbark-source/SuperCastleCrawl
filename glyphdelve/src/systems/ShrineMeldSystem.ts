@@ -54,6 +54,21 @@ export function previewMeld(
 ): MeldPreview {
   const cost = MELD_COSTS[meldType];
 
+  // A thing cannot be melded with itself: both inputs are removed by id, so
+  // this would consume one copy and hand back a free upgrade.
+  if (input1.id === input2.id) {
+    return {
+      possible: false,
+      outputName: '???',
+      outputDescription: '',
+      outputTags: [],
+      inheritedTraits: [],
+      emergentTrait: '',
+      cost,
+      reason: 'Pick two different things to meld',
+    };
+  }
+
   if (state.player.essence < cost) {
     return {
       possible: false,
@@ -188,6 +203,7 @@ export function executeMeld(
   preview: MeldPreview
 ): boolean {
   if (!preview.possible) return false;
+  if (input1.id === input2.id) return false;
 
   const player = state.player;
 
