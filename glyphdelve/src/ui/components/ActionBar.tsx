@@ -128,7 +128,7 @@ const ActionBarInner: React.FC<Props> = ({ actions, selectedId, form, onAction }
           ◆ {form === 'bear' ? 'Bear Form' : 'Caster Form'}
         </span>
         <span style={{ color: T.textFaint, fontSize: T.size.tiny }}>
-          WASD/QEZC step · click to move or strike · Space waits · Tab toggles hints
+          WASD/QEZC step · click to move or strike · Space waits · 1-9 skills (press twice to aim) · Tab hints
         </span>
       </div>
     </div>

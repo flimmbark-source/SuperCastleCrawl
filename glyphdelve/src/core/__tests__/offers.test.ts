@@ -86,3 +86,37 @@ describe('level-up offers', () => {
     expect(summonCards / total, 'too many inert summon offers').toBeLessThan(0.2);
   });
 });
+
+describe('level-up rewards are never wasted', () => {
+  it('stops offering new skills once every slot is full', () => {
+    const s = freshStateWithFullSkills();
+    const rng = new SeededRNG(9);
+    for (let i = 0; i < 10; i++) {
+      const offers = generateLevelUpOffers(s, rng);
+      const plainSkills = offers.filter(o => o.type === 'skill');
+      expect(plainSkills.map(o => o.id), 'offered a skill with nowhere to put it').toEqual([]);
+    }
+  });
+
+  it('still pays out if a skill is somehow chosen with no slot free', () => {
+    // The pool guards this, but a level-up that silently evaporates would be
+    // the worst possible outcome, so the apply path pays out regardless.
+    const s = freshStateWithFullSkills();
+    const before = { skills: s.player.skills.length, maxHp: s.player.maxHp };
+    applyLevelUpChoice(s, 'spirit_swarm');
+    expect(s.player.skills.length).toBe(before.skills);
+    expect(s.player.maxHp).toBeGreaterThan(before.maxHp);
+  });
+});
+
+function freshStateWithFullSkills() {
+  ensureRegistry();
+  const s = createRunState(77);
+  ['spore_bolt', 'thornburst', 'wild_charge'].forEach(id => {
+    const def = registry.getSkill(id)!;
+    s.player.skills.push({ def, cooldownRemaining: 0, level: 1, upgraded: false });
+  });
+  updateBuildTags(s.player);
+  expect(s.player.skills.length).toBe(s.player.maxSkillSlots);
+  return s;
+}

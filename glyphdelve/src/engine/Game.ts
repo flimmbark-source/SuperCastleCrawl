@@ -62,6 +62,9 @@ export interface TurnOrderEntry {
   rank: 'normal' | 'elite' | 'boss';
 }
 
+/** Skills the player may aim at a tile rather than firing where they stand. */
+const AIMED_SKILLS = new Set(['entangling_vines', 'spore_bolt', 'wild_charge']);
+
 const FLOOR_ENEMY_POOL: Record<number, string[]> = {
   1: ['skeleton_chaser', 'mushroom_spitter', 'shadow_imp', 'toxic_shroom'],
   2: ['skeleton_chaser', 'mushroom_spitter', 'stone_golem', 'shadow_imp', 'toxic_shroom'],
@@ -301,6 +304,17 @@ export class Game {
     if (ev.code === 'Tab') {
       ev.preventDefault();
       this.showMoveHints = !this.showMoveHints;
+      this.push();
+      return;
+    }
+
+    if (ev.code === 'Escape') {
+      // Cancel a pending aim rather than leaving the player stuck in it.
+      if (this.selectedActionId) {
+        ev.preventDefault();
+        this.selectedActionId = null;
+        this.push();
+      }
       return;
     }
 
@@ -320,9 +334,16 @@ export class Game {
     const s = e.skills.find(x => x.id === skillId);
     if (!s || s.cooldownRemaining > 0) return;
     // Self-targeted skills resolve immediately; aimed ones wait for a click.
-    const needsAim = ['entangling_vines', 'spore_bolt', 'wild_charge'].includes(skillId);
+    const needsAim = AIMED_SKILLS.has(skillId);
     if (needsAim) {
-      this.selectedActionId = this.selectedActionId === skillId ? null : skillId;
+      if (this.selectedActionId === skillId) {
+        // Pressing the same key again commits at the nearest valid target,
+        // so an aimed skill is usable without ever touching a mouse.
+        this.selectedActionId = null;
+        this.apply(e.performSkill(skillId));
+        return;
+      }
+      this.selectedActionId = skillId;
       this.push();
       return;
     }

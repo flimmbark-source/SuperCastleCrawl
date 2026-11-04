@@ -308,6 +308,12 @@ function weightedPickAndRemove(pool: LevelUpOffer[], rng: SeededRNG): LevelUpOff
   return pool.splice(pool.length - 1, 1)[0];
 }
 
+/** Fallback reward, so a level-up can never be consumed for nothing. */
+function grantConsolation(state: RunState) {
+  state.player.maxHp += 8;
+  state.player.hp += 8;
+}
+
 // --- Apply chosen offer ---
 export function applyLevelUpChoice(state: RunState, offerId: string) {
   const player = state.player;
@@ -322,6 +328,11 @@ export function applyLevelUpChoice(state: RunState, offerId: string) {
         level: 1,
         upgraded: false,
       });
+    } else {
+      // Defensive: the pool should never offer a skill with no slot for it,
+      // but a level-up that silently evaporates is the worst possible
+      // outcome, so pay out something real instead.
+      grantConsolation(state);
     }
     updateBuildTags(player);
     return;
