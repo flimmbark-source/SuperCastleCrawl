@@ -75,7 +75,7 @@ function chooseAndPerform(engine: TacticalEngine): Decision {
   for (const t of targets) {
     const e = enemies.find(a => a.tile.x === t.x && a.tile.y === t.y);
     if (!e) continue;
-    const estimate = engine.form === 'bear' ? 14 : 11;
+    const estimate = engine.attackDamage();
     if (e.hp <= estimate) {
       const r = engine.performAttack(t);
       if (r.ok) return { ok: true, label: `kill ${e.name}`, cost: r.beatsSpent, killed: r.killed.length };

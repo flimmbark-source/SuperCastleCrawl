@@ -228,6 +228,7 @@ export interface SweepSummary {
   avgKills: number;
   avgBeats: number;
   errors: string[];
+  stalls: number;
   deathsByFloor: Record<number, number>;
   deathsByType: Record<string, number>;
   avgHpLossByType: Record<string, number>;
@@ -262,6 +263,7 @@ export function sweep(seeds: number[], opts: SimOptions = {}): SweepSummary {
     Math.round((records.reduce((a, r) => a + f(r), 0) / records.length) * 10) / 10;
 
   return {
+    stalls: records.filter(r => r.error?.startsWith('stalled')).length,
     runs: records.length,
     winRate: Math.round((records.filter(r => r.won).length / records.length) * 1000) / 10,
     avgRoomsCleared: avg(r => r.roomsCleared),

@@ -52,7 +52,17 @@ export const TurnOrderRail: React.FC<Props> = ({
           </div>
 
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={name}>{e.name}</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+              <span style={name}>{e.name}</span>
+              {e.rank !== 'normal' && (
+                <span style={{
+                  ...label, fontSize: 7.5, flexShrink: 0,
+                  color: e.rank === 'boss' ? T.essence : T.bear,
+                }}>
+                  {e.rank}
+                </span>
+              )}
+            </div>
             <div style={{
               fontSize: T.size.tiny,
               color: e.dangerous ? T.threat : T.textMuted,

@@ -298,6 +298,15 @@ export class TacticalEngine {
     return this.applyCostModifiers(FORM[this.form].cost);
   }
 
+  /**
+   * Basic-attack damage for the current form at the player's current level.
+   * Without this the core attack never improved, so every fight after the
+   * first floor turned into a grind regardless of how the build was going.
+   */
+  attackDamage(): number {
+    return FORM[this.form].damage + (this.meta.level - 1) * 2;
+  }
+
   skillCost(s: SkillRuntime): Beats {
     let c = s.beatCost;
     const discount = Number(this.ctx.owned.flags.nextSkillBeatDiscount ?? 0);
@@ -444,8 +453,8 @@ export class TacticalEngine {
     out.push({
       kind: 'attack', id: 'attack', label: f.attackLabel, cost: this.attackCost(),
       description: f.melee
-        ? `Sweep the tile in front of you and both tiles beside it for ${f.damage}, shoving survivors back.`
-        : `Strike one target up to ${f.range} tiles away for ${f.damage}. Needs a clear line of fire.`,
+        ? `Sweep the tile in front of you and both tiles beside it for ${this.attackDamage()}, shoving survivors back.`
+        : `Strike one target up to ${f.range} tiles away for ${this.attackDamage()}. Needs a clear line of fire.`,
       tags: [...f.tags],
       disabledReason: this.attackBlockedReason(),
     });
@@ -514,7 +523,7 @@ export class TacticalEngine {
     const hit: Actor[] = [];
     for (const v of victims) {
       const r = dealDamage(this.ctx, {
-        attacker: this.player, target: v, amount: f.damage,
+        attacker: this.player, target: v, amount: this.attackDamage(),
         type: f.melee ? 'physical' : 'nature', tags: [...f.tags], melee: f.melee,
       });
       if (r.dealt > 0) hit.push(v);
@@ -533,7 +542,7 @@ export class TacticalEngine {
     if (hit.length > 1) {
       emit(this.ctx, {
         type: 'OnAreaDamage', attacker: this.player,
-        targets: hit, damage: f.damage, tags: [...f.tags, 'AOE'],
+        targets: hit, damage: this.attackDamage(), tags: [...f.tags, 'AOE'],
       });
     }
     emit(this.ctx, { type: 'OnAttack', actor: this.player, tags: [...f.tags] });
@@ -872,10 +881,21 @@ export class TacticalEngine {
       this.beatsSinceKill += cost;
       while (this.beatsSinceKill >= PRESSURE_INTERVAL) {
         this.beatsSinceKill -= PRESSURE_INTERVAL;
-        if (this.ctx.pressure >= PRESSURE_MAX) break;
-        this.ctx.pressure = Math.min(PRESSURE_MAX, this.ctx.pressure + 1);
-        logLine(this.ctx, 'system',
-          `The delve presses in — enemies hit for +${this.ctx.pressure}`, true);
+        if (this.ctx.pressure < PRESSURE_MAX) {
+          this.ctx.pressure += 1;
+          logLine(this.ctx, 'system',
+            `The delve presses in — enemies hit for +${this.ctx.pressure}`, true);
+        } else {
+          // At full pressure the delve itself closes in. This guarantees that
+          // a room always resolves: without it, a player who can neither be
+          // reached nor reach anything could stall a room indefinitely.
+          dealDamage(this.ctx, {
+            attacker: this.player, target: this.player, amount: PRESSURE_MAX,
+            type: 'physical', tags: ['Hazard'], silentTriggers: true,
+          });
+          logLine(this.ctx, 'system', 'The walls close in — you are being crushed', true);
+          this.updateOutcome();
+        }
       }
     }
     const lost = this.hpBefore - this.player.hp;

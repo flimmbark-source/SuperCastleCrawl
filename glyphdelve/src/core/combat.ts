@@ -318,6 +318,11 @@ export function killActor(ctx: CombatContext, target: Actor, killer: Actor | nul
   fx(ctx, { kind: 'burst', tile: target.tile, colour: '#ff7043', lifeMs: 520, radius: 1 });
   logLine(ctx, 'kill', `${target.name} is destroyed`, true);
 
+  if (target.flags.eliteModifier === 'elite_toxic') {
+    spawnHazard(ctx, target.tile, 4, 8, 'enemy', 'Toxic Remains', '#9ccc65', ['DOT', 'Poison']);
+    logLine(ctx, 'trigger', `${target.name} bursts into a toxic cloud`);
+  }
+
   if (killer) emit(ctx, { type: 'OnKill', attacker: killer, target });
   emit(ctx, { type: 'OnDeath', target, killer });
 }

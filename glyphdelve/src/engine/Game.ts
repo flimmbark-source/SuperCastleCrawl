@@ -27,6 +27,8 @@ import type { Actor, PlayerActionOption } from '../core/model';
 import { awardXP, XP_REWARDS, generateLevelUpOffers, applyLevelUpChoice } from '../systems/LevelSystem';
 import { rollDrops, applyDrops, createGuaranteedEncounterDrop } from '../systems/DropSystem';
 import { registry } from './DataRegistry';
+import { ELITE_MODIFIERS } from '../core/ai';
+import type { EliteModifierId } from '../core/ai';
 
 export type GamePhase =
   | 'menu' | 'map' | 'combat' | 'levelup' | 'shrine' | 'recovery'
@@ -57,6 +59,7 @@ export interface TurnOrderEntry {
   dangerous: boolean;
   hp: number;
   maxHp: number;
+  rank: 'normal' | 'elite' | 'boss';
 }
 
 const FLOOR_ENEMY_POOL: Record<number, string[]> = {
@@ -554,6 +557,7 @@ export class Game {
         inBeats: Math.max(0, Math.round(a.nextActAt - clock)),
         isPlayer: false,
         intentLabel: a.intent?.label ?? 'Idle',
+        rank: (a.flags.isBoss ? 'boss' : a.flags.isElite ? 'elite' : 'normal') as TurnOrderEntry['rank'],
         dangerous: a.intent?.kind === 'attack' || a.intent?.kind === 'hazard',
         hp: Math.ceil(a.hp),
         maxHp: a.maxHp,
@@ -574,10 +578,15 @@ export class Game {
     const threat = e.threatenedTiles().get(tileKey(t));
 
     if (actor) {
-      lines.push(`${Math.ceil(actor.hp)} / ${actor.maxHp} HP`);
+      const shield = Number(actor.flags.shieldHp ?? 0);
+      lines.push(`${Math.ceil(actor.hp)} / ${actor.maxHp} HP${shield > 0 ? ` (+${Math.round(shield)} shield)` : ''}`);
       if (actor.faction === 'enemy') {
         lines.push(`Acts every ${actor.actSpeed} Beats`);
         if (actor.intent) lines.push(`Next: ${actor.intent.label}`);
+        // An elite modifier the player cannot read is hidden difficulty, which
+        // breaks the perfect-information promise the whole design rests on.
+        const mod = actor.flags.eliteModifier as EliteModifierId | undefined;
+        if (mod && ELITE_MODIFIERS[mod]) lines.push(ELITE_MODIFIERS[mod].rule);
       }
       const st = Object.keys(actor.statuses);
       if (st.length) lines.push(`Afflicted: ${st.join(', ')}`);

@@ -9,10 +9,10 @@ import { updateBuildTags, addCombatLog } from '../engine/RunState';
 
 // --- XP Awards ---
 export const XP_REWARDS = {
-  normal: 6,
-  elite: 28,
-  boss: 90,
-  roomClear: 18,
+  normal: 10,
+  elite: 40,
+  boss: 120,
+  roomClear: 28,
 } as const;
 
 export function awardXP(state: RunState, amount: number): boolean {

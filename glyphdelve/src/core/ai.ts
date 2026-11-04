@@ -261,6 +261,10 @@ export function executeIntent(ctx: CombatContext, enemy: Actor): ExecuteResult {
   const intent = enemy.intent;
   if (!enemy.alive || !intent) return result;
 
+  if (enemy.flags.eliteModifier === 'elite_shielded') {
+    enemy.flags.shieldHp = Math.min(30, Number(enemy.flags.shieldHp ?? 0) + 10);
+  }
+
   switch (intent.kind) {
     case 'wait':
       break;
@@ -313,7 +317,7 @@ export function executeIntent(ctx: CombatContext, enemy: Actor): ExecuteResult {
           tags: intent.melee ? ['Physical', 'Melee'] : ['Physical', 'Ranged'],
           melee: intent.melee,
         });
-        if (res.dealt > 0 && intent.effect === 'poison') {
+        if (res.dealt > 0 && (intent.effect === 'poison' || enemy.flags.eliteModifier === 'elite_toxic')) {
           inflictStatus(ctx, enemy, v, 'poison', 1, -1);
         }
         if (res.dealt > 0 && intent.effect === 'shove' && v.alive) {
@@ -358,6 +362,31 @@ let enemySeq = 0;
 
 export function resetEnemySeq(): void { enemySeq = 0; }
 
+/**
+ * Elite modifiers. Each changes how the enemy behaves, not just its numbers,
+ * so an elite poses a different question rather than a longer one.
+ */
+export const ELITE_MODIFIERS = {
+  elite_frenzied: {
+    name: 'Frenzied',
+    rule: 'Acts 1 Beat sooner than its kind and hits 20% harder.',
+    colour: '#ff7043',
+  },
+  elite_shielded: {
+    name: 'Shielded',
+    rule: 'Regains a 10-point shield every time it acts.',
+    colour: '#64b5f6',
+  },
+  elite_toxic: {
+    name: 'Toxic',
+    rule: 'Its hits apply Poison, and it leaves a toxic cloud where it dies.',
+    colour: '#9ccc65',
+  },
+} as const;
+
+export type EliteModifierId = keyof typeof ELITE_MODIFIERS;
+const ELITE_IDS = Object.keys(ELITE_MODIFIERS) as EliteModifierId[];
+
 export function spawnEnemyActor(
   ctx: CombatContext,
   defId: string,
@@ -370,8 +399,11 @@ export function spawnEnemyActor(
 
   const scale = floor >= 2 ? def.floorScaling : { hpMult: 1, damageMult: 1 };
   const isBoss = defId.startsWith('boss_');
+  // Bosses carry their own tuned stat line. Applying the elite multiplier on
+  // top of it turned the floor-1 boss into a 504 HP wall.
+  const elite = isElite && !isBoss;
   let hp = Math.round(def.hp * scale.hpMult);
-  if (isElite) hp = Math.round(hp * 1.8);
+  if (elite) hp = Math.round(hp * 1.8);
 
   const actor: Actor = {
     id: `e${++enemySeq}`,
@@ -379,7 +411,7 @@ export function spawnEnemyActor(
     faction: 'enemy',
     tile: { ...tile },
     hp, maxHp: hp,
-    armor: isElite ? 2 : 0,
+    armor: elite ? 2 : isBoss ? 1 : 0,
     alive: true,
     tags: [...def.tags],
     nextActAt: ctx.clock + (isBoss ? 3 : (ARCHETYPE_SPEED[def.archetype] ?? 3)),
@@ -388,14 +420,25 @@ export function spawnEnemyActor(
     statuses: {},
     facing: { x: -1, y: 0 },
     defId,
-    name: isElite ? `Elite ${def.name}` : def.name,
+    name: elite ? `Elite ${def.name}` : def.name,
     flashMs: 0,
     deathAnimMs: 0,
     flags: {
-      isElite, isBoss,
-      baseDamage: Math.round(def.damage * scale.damageMult * (isElite ? 1.3 : 1)),
+      isElite: elite, isBoss,
+      baseDamage: Math.round(def.damage * scale.damageMult * (elite ? 1.3 : 1)),
     },
   };
+
+  if (elite) {
+    const mod = ctx.rng.pick(ELITE_IDS);
+    actor.flags.eliteModifier = mod;
+    actor.name = `${ELITE_MODIFIERS[mod].name} ${def.name}`;
+    if (mod === 'elite_frenzied') {
+      actor.actSpeed = Math.max(2, actor.actSpeed - 1);
+      actor.flags.baseDamage = Math.round(Number(actor.flags.baseDamage) * 1.2);
+    }
+  }
+
   ctx.actors.push(actor);
   declareIntent(ctx, actor);
   return actor;
