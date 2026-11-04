@@ -8,7 +8,7 @@
 
 import React, { useState } from 'react';
 import type { FloorMap, MapNode, NodeType } from '../../types';
-import { T, panel, label } from '../theme';
+import { T, panel, label, FONT, S } from '../theme';
 
 interface Props {
   map: FloorMap;
@@ -20,7 +20,7 @@ interface Props {
 }
 
 const ICON: Record<NodeType, string> = {
-  combat: '⚔', elite: '⬟', shrine: '◆', recovery: '✚', event: '◌', boss: '☠',
+  combat: '\u2694', elite: '\u2b1f', shrine: '\u25c6', recovery: '\u271a', event: '\u25cb', boss: '\u2620',
 };
 
 const COLOUR: Record<NodeType, string> = {
@@ -73,10 +73,10 @@ export const MapView: React.FC<Props> = ({
       <div style={{ ...panel, padding: 18, maxWidth: '96vw', maxHeight: '92vh', overflow: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 24 }}>
           <div>
-            <div style={{ fontFamily: T.mono, fontSize: 19, color: T.text, letterSpacing: 2 }}>
+            <div style={{ fontFamily: FONT.ui, fontSize: 19, color: T.text, letterSpacing: 2 }}>
               DELVE ROUTE · FLOOR {floor}
             </div>
-            <div style={{ fontFamily: T.mono, fontSize: 11, color: T.textMuted, marginTop: 3 }}>
+            <div style={{ fontFamily: FONT.ui, fontSize: 11, color: T.textMuted, marginTop: 3 }}>
               Choose where to go next. Paths diverge — you cannot take every room.
             </div>
           </div>
@@ -97,10 +97,10 @@ export const MapView: React.FC<Props> = ({
                     key={`${n.id}->${cid}`}
                     d={`M ${a.x + 28} ${a.y} C ${a.x + 62} ${a.y}, ${b.x - 62} ${b.y}, ${b.x - 28} ${b.y}`}
                     fill="none"
-                    stroke={live ? T.beat : n.completed ? T.lineStrong : T.line}
+                    stroke={live ? T.beat : n.completed ? 'rgba(94,196,125,0.4)' : T.lineStrong}
                     strokeWidth={live ? 2.5 : 1.5}
                     strokeDasharray={live ? undefined : '4 4'}
-                    opacity={live ? 0.95 : 0.55}
+                    opacity={live ? 0.95 : 0.75}
                   />
                 );
               }),
@@ -125,20 +125,25 @@ export const MapView: React.FC<Props> = ({
                   position: 'absolute',
                   left: p.x - 32, top: p.y - 30,
                   width: 64, height: 60,
-                  background: isAvailable ? 'rgba(255,213,79,0.09)'
-                    : n.completed ? 'rgba(255,255,255,0.03)' : T.surface,
-                  border: `2px solid ${isAvailable ? T.beat : isCurrent ? T.lineStrong : T.line}`,
+                  background: isAvailable
+                    ? 'linear-gradient(180deg, rgba(255,207,77,0.16) 0%, rgba(255,207,77,0.05) 100%)'
+                    : n.completed ? 'rgba(94,196,125,0.06)'
+                      : 'linear-gradient(180deg, rgba(31,39,56,0.9) 0%, rgba(21,27,39,0.9) 100%)',
+                  border: `2px solid ${isAvailable ? T.beat
+                    : n.completed ? 'rgba(94,196,125,0.35)'
+                      : isCurrent ? T.lineStrong : T.line}`,
+                  boxShadow: isAvailable ? '0 6px 20px rgba(255,207,77,0.18)' : T.shadowSm,
                   borderRadius: 8,
                   cursor: isAvailable ? 'pointer' : 'default',
-                  opacity: dim ? 0.42 : 1,
+                  opacity: dim ? 0.92 : 1,
                   display: 'flex', flexDirection: 'column',
                   alignItems: 'center', justifyContent: 'center', gap: 2,
-                  fontFamily: T.mono,
+                  fontFamily: FONT.ui,
                   transition: 'opacity 150ms, border-color 150ms',
                 }}
               >
                 <span style={{ fontSize: 17, color: COLOUR[n.type] }}>{ICON[n.type]}</span>
-                <span style={{ fontSize: 9, color: dim ? T.textFaint : T.textMuted, letterSpacing: 0.5 }}>
+                <span style={{ fontSize: 9.5, color: T.textMuted, letterSpacing: 0.4, fontWeight: 500 }}>
                   {n.type}
                 </span>
                 {n.completed && <span style={{ fontSize: 8, color: T.good }}>cleared</span>}
@@ -150,7 +155,7 @@ export const MapView: React.FC<Props> = ({
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
           {(Object.keys(ICON) as NodeType[]).map(t => (
-            <span key={t} style={{ fontFamily: T.mono, fontSize: 10, color: T.textMuted }}>
+            <span key={t} style={{ fontFamily: FONT.ui, fontSize: 10, color: T.textMuted }}>
               <span style={{ color: COLOUR[t] }}>{ICON[t]}</span> {t}
             </span>
           ))}
@@ -183,10 +188,10 @@ const overlay: React.CSSProperties = {
 const btn: React.CSSProperties = {
   padding: '7px 16px', background: T.surfaceRaised, color: T.text,
   border: `1px solid ${T.lineStrong}`, borderRadius: T.radius,
-  fontFamily: T.mono, fontSize: 12, cursor: 'pointer',
+  fontFamily: FONT.ui, fontSize: 12, cursor: 'pointer',
 };
 
 const hoverBox: React.CSSProperties = {
   marginTop: 10, display: 'flex', gap: 10, alignItems: 'baseline',
-  fontFamily: T.mono, fontSize: 11, minHeight: 16,
+  fontFamily: FONT.ui, fontSize: 11, minHeight: 16,
 };

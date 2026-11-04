@@ -7,7 +7,7 @@
 // ============================================================
 
 import React from 'react';
-import { T, panel, label } from '../theme';
+import { T, S, FONT, panel, label } from '../theme';
 
 interface Props {
   info: { title: string; lines: string[] } | null;
@@ -18,7 +18,10 @@ export const TileInspector: React.FC<Props> = ({ info }) => {
     return (
       <div style={wrap}>
         <div style={label}>Inspect</div>
-        <div style={{ color: T.textFaint, fontSize: 11, marginTop: 4 }}>
+        <div style={{
+          color: T.textFaint, fontSize: T.size.small,
+          marginTop: S.xs, fontFamily: FONT.ui,
+        }}>
           Point at a tile to read it.
         </div>
       </div>
@@ -27,14 +30,19 @@ export const TileInspector: React.FC<Props> = ({ info }) => {
   return (
     <div style={wrap}>
       <div style={label}>Inspect</div>
-      <div style={{ fontFamily: T.mono, fontSize: 13, color: T.text, marginTop: 3 }}>
+      <div style={{
+        fontFamily: FONT.ui, fontSize: T.size.lead, fontWeight: 600,
+        color: T.text, marginTop: 3, letterSpacing: 0.2,
+      }}>
         {info.title}
       </div>
       {info.lines.map((l, i) => (
         <div
           key={i}
           style={{
-            fontFamily: T.mono, fontSize: 10.5, marginTop: 3, lineHeight: 1.45,
+            fontFamily: /\d/.test(l) ? FONT.num : FONT.ui,
+            fontSize: T.size.small, marginTop: S.xs, lineHeight: 1.5,
+            fontWeight: l.startsWith('Incoming') ? 600 : 400,
             color: l.startsWith('Incoming') ? T.threat
               : l.startsWith('Step here') ? T.beat
               : T.textMuted,
@@ -48,6 +56,6 @@ export const TileInspector: React.FC<Props> = ({ info }) => {
 };
 
 const wrap: React.CSSProperties = {
-  ...panel, position: 'absolute', bottom: 12, left: 12,
-  width: 220, padding: '9px 11px', zIndex: 18,
+  ...panel, position: 'absolute', bottom: S.md, left: S.md,
+  width: 226, padding: `${S.md - 2}px ${S.md}px`, zIndex: 18,
 };

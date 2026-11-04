@@ -1,67 +1,68 @@
 // ============================================================
 // Glyphdelve - Turn Order Rail
 //
-// Who acts next, and in how many Beats. Without this the Beat cost of an
-// action is just a number; with it, the player can read "this costs 4 Beats
-// and the imp acts in 2" and make an informed trade.
+// Who acts next, and in how many Beats. Without this, an action's Beat cost
+// is just a number; with it the player can read "this costs 4 and the imp
+// acts in 2" and make the trade knowingly.
 // ============================================================
 
 import React from 'react';
 import type { TurnOrderEntry } from '../../engine/Game';
-import { T, panel, barTrack, bar, label } from '../theme';
+import { T, S, FONT, panel, barTrack, bar, label, num, EASE } from '../theme';
 
 interface Props {
   entries: TurnOrderEntry[];
-  /** Beats the pending/hovered action would spend, to shade what it unlocks. */
+  /** Beats the hovered action would spend, to shade what it would unlock. */
   pendingCost: number | null;
   pressure: number;
   beatsToPressure: number;
 }
 
+const PRESSURE_WINDOW = 18;
+
 export const TurnOrderRail: React.FC<Props> = ({
   entries, pendingCost, pressure, beatsToPressure,
 }) => (
   <div style={wrap}>
-    <div style={{ ...label, marginBottom: 6 }}>Acting next</div>
+    <div style={{ ...label, marginBottom: S.sm }}>Acting next</div>
 
     {entries.length === 0 && (
-      <div style={{ color: T.textFaint, fontSize: 11 }}>Nothing left standing.</div>
+      <div style={{ color: T.textFaint, fontSize: T.size.small }}>Nothing left standing.</div>
     )}
 
     {entries.map(e => {
-      // Highlight everything the pending action would let act.
       const willAct = pendingCost != null && e.inBeats <= pendingCost;
+      const imminent = e.inBeats === 0;
       return (
         <div
           key={e.id}
           style={{
             ...row,
-            borderColor: willAct ? T.beat : 'transparent',
-            background: willAct ? 'rgba(255,213,79,0.08)' : 'transparent',
+            borderColor: willAct ? 'rgba(255,207,77,0.55)' : 'transparent',
+            background: willAct ? 'rgba(255,207,77,0.08)' : 'transparent',
           }}
         >
           <div style={{
             ...beatPill,
-            color: e.inBeats === 0 ? T.threat : T.beat,
-            borderColor: e.inBeats === 0 ? T.threat : 'rgba(255,213,79,0.35)',
+            color: imminent ? T.threat : T.beat,
+            borderColor: imminent ? 'rgba(242,84,91,0.6)' : 'rgba(255,207,77,0.32)',
+            background: imminent ? 'rgba(242,84,91,0.12)' : 'rgba(255,207,77,0.07)',
           }}>
             {e.inBeats}
           </div>
+
           <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={name}>{e.name}</div>
             <div style={{
-              fontSize: 11, color: T.text, whiteSpace: 'nowrap',
-              overflow: 'hidden', textOverflow: 'ellipsis',
-            }}>
-              {e.name}
-            </div>
-            <div style={{
-              fontSize: 10,
+              fontSize: T.size.tiny,
               color: e.dangerous ? T.threat : T.textMuted,
+              fontWeight: e.dangerous ? 600 : 400,
+              marginTop: 1,
             }}>
-              {e.dangerous ? '⚔ ' : '› '}{e.intentLabel}
+              {e.dangerous ? '\u25A0 ' : '\u203A '}{e.intentLabel}
             </div>
-            <div style={{ ...barTrack, marginTop: 3, height: 4 }}>
-              <div style={bar(e.hp / e.maxHp, e.hp / e.maxHp < 0.35 ? T.threat : '#ef9a9a', 4)} />
+            <div style={{ ...barTrack, marginTop: S.xs, height: 4 }}>
+              <div style={bar(e.hp / e.maxHp, e.hp / e.maxHp < 0.35 ? T.threat : '#e8827f', 4)} />
             </div>
           </div>
         </div>
@@ -72,40 +73,55 @@ export const TurnOrderRail: React.FC<Props> = ({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <span style={label}>Delve Pressure</span>
         <span style={{
-          fontSize: 12, fontFamily: T.mono, fontWeight: 700,
+          ...num, fontSize: T.size.body, fontWeight: 700,
           color: pressure > 0 ? T.threat : T.textFaint,
         }}>
-          {pressure > 0 ? `+${pressure} dmg` : 'calm'}
+          {pressure > 0 ? `+${pressure}` : '—'}
         </span>
       </div>
-      <div style={{ ...barTrack, marginTop: 4, height: 4 }}>
-        <div style={bar(Math.max(0, Math.min(1, 1 - beatsToPressure / 18)), pressure > 0 ? T.threat : T.warn, 4)} />
+      <div style={{ ...barTrack, marginTop: S.xs, height: 4 }}>
+        <div style={{
+          ...bar(Math.max(0, Math.min(1, 1 - beatsToPressure / PRESSURE_WINDOW)),
+            pressure > 0 ? T.threat : T.warn, 4),
+          transition: `width 300ms ${EASE}`,
+        }} />
       </div>
-      <div style={{ fontSize: 9, color: T.textFaint, marginTop: 3 }}>
-        {beatsToPressure} Beats until the delve presses in. Killing something resets it.
+      <div style={{ fontSize: T.size.micro, color: T.textFaint, marginTop: S.xs, lineHeight: 1.5 }}>
+        {pressure > 0
+          ? <>Enemies hit for <span style={{ ...num, color: T.threat }}>+{pressure}</span>. A kill resets it.</>
+          : <><span style={num}>{beatsToPressure}</span> Beats before the delve presses in.</>}
       </div>
     </div>
   </div>
 );
 
 const wrap: React.CSSProperties = {
-  ...panel, position: 'absolute', top: 12, right: 12,
-  width: 206, padding: '10px 10px 8px', zIndex: 18,
+  ...panel,
+  position: 'absolute', top: S.md, right: S.md,
+  width: 212, padding: `${S.md}px ${S.md}px ${S.sm + 2}px`,
+  zIndex: 18,
 };
 
 const row: React.CSSProperties = {
-  display: 'flex', gap: 8, alignItems: 'center',
-  padding: '4px 5px', marginBottom: 3,
+  display: 'flex', gap: S.sm + 2, alignItems: 'center',
+  padding: `${S.xs + 1}px ${S.xs + 2}px`, marginBottom: 3,
   border: '1px solid transparent', borderRadius: 5,
+  transition: `background 180ms ${EASE}, border-color 180ms ${EASE}`,
 };
 
 const beatPill: React.CSSProperties = {
-  minWidth: 22, height: 22, borderRadius: 11,
-  border: '1px solid rgba(255,213,79,0.35)',
+  ...num,
+  minWidth: 24, height: 24, borderRadius: 12,
+  border: '1px solid rgba(255,207,77,0.32)',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
-  fontFamily: T.mono, fontSize: 11, fontWeight: 700, flexShrink: 0,
+  fontSize: T.size.small, fontWeight: 700, flexShrink: 0,
+};
+
+const name: React.CSSProperties = {
+  fontFamily: FONT.ui, fontSize: T.size.small, fontWeight: 500, color: T.text,
+  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
 };
 
 const pressureBox: React.CSSProperties = {
-  marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.line}`,
+  marginTop: S.sm + 2, paddingTop: S.sm + 2, borderTop: `1px solid ${T.line}`,
 };

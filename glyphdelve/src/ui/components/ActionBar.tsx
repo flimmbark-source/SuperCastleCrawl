@@ -1,54 +1,63 @@
 // ============================================================
 // Glyphdelve - Action Bar
 //
-// The primary interface. Every action shows its Beat cost before it is taken,
-// because the whole game is the question "can I afford this right now?".
+// The primary interface. Every action states its Beat cost before it is
+// taken, because the whole game is the question "can I afford this?".
 // ============================================================
 
 import React, { useState } from 'react';
 import type { PlayerActionOption } from '../../core/model';
-import { T, panel, beatChip } from '../theme';
+import { T, S, FONT, panel, beatChip, num, label, EASE } from '../theme';
 
 interface Props {
   actions: PlayerActionOption[];
   selectedId: string | null;
   form: 'caster' | 'bear';
-  /** Beats until Delve Pressure rises, so the cost of stalling is visible. */
   onAction: (a: PlayerActionOption) => void;
 }
 
 const HOTKEY: Record<string, string> = {
-  wait: 'Space',
-  attack: 'Click',
+  wait: 'SPC',
+  attack: 'CLK',
 };
 
 export const ActionBar: React.FC<Props> = ({ actions, selectedId, form, onAction }) => {
   const [hovered, setHovered] = useState<PlayerActionOption | null>(null);
+  const [focusRing, setFocusRing] = useState<string | null>(null);
   let skillIndex = 0;
 
   return (
     <div style={wrap}>
       {hovered && (
-        <div style={tooltip}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-            <strong style={{ color: T.text, fontSize: 13 }}>{hovered.label}</strong>
+        <div style={tooltip} role="tooltip">
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: S.md, alignItems: 'center' }}>
+            <strong style={{ fontSize: T.size.lead, fontWeight: 700, letterSpacing: 0.2 }}>
+              {hovered.label}
+            </strong>
             <span style={beatChip(hovered.cost)}>{hovered.cost} Beats</span>
           </div>
+
           {hovered.description && (
-            <div style={{ color: T.textMuted, fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
+            <p style={{ color: T.textMuted, fontSize: T.size.body, marginTop: S.sm, lineHeight: 1.55 }}>
               {hovered.description}
-            </div>
+            </p>
           )}
+
           {hovered.tags && hovered.tags.length > 0 && (
-            <div style={{ marginTop: 6, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            <div style={{ marginTop: S.sm, display: 'flex', gap: S.xs, flexWrap: 'wrap' }}>
               {hovered.tags.map(t => <span key={t} style={tagChip}>{t}</span>)}
             </div>
           )}
+
           {hovered.disabledReason && (
-            <div style={{ color: T.threat, fontSize: 11, marginTop: 6 }}>{hovered.disabledReason}</div>
+            <div style={{ color: T.threat, fontSize: T.size.small, marginTop: S.sm, fontWeight: 500 }}>
+              {hovered.disabledReason}
+            </div>
           )}
-          <div style={{ color: T.textFaint, fontSize: 10, marginTop: 6 }}>
-            Spending {hovered.cost} Beats gives every enemy that much time to act.
+
+          <div style={costNote}>
+            Spending <span style={{ ...num, color: T.beat, fontWeight: 700 }}>{hovered.cost}</span>
+            {' '}Beats hands every enemy that much time to act.
           </div>
         </div>
       )}
@@ -60,6 +69,7 @@ export const ActionBar: React.FC<Props> = ({ actions, selectedId, form, onAction
           const hotkey = HOTKEY[a.id] ?? (isSkill ? `${skillIndex}` : '');
           const disabled = Boolean(a.disabledReason);
           const selected = selectedId === a.id;
+          const hot = hovered?.id === a.id || focusRing === a.id;
 
           return (
             <button
@@ -67,29 +77,41 @@ export const ActionBar: React.FC<Props> = ({ actions, selectedId, form, onAction
               onClick={() => !disabled && onAction(a)}
               onMouseEnter={() => setHovered(a)}
               onMouseLeave={() => setHovered(null)}
+              onFocus={() => { setHovered(a); setFocusRing(a.id); }}
+              onBlur={() => { setHovered(null); setFocusRing(null); }}
               disabled={disabled}
               aria-label={`${a.label}, ${a.cost} beats${disabled ? `, unavailable: ${a.disabledReason}` : ''}`}
               style={{
                 ...card,
-                opacity: disabled ? 0.42 : 1,
+                opacity: disabled ? 0.4 : 1,
                 cursor: disabled ? 'not-allowed' : 'pointer',
-                borderColor: selected ? T.beat : disabled ? T.line : T.lineStrong,
-                boxShadow: selected ? `0 0 0 1px ${T.beat}` : 'none',
-                background: selected ? 'rgba(255,213,79,0.1)' : T.surfaceRaised,
+                borderColor: selected ? T.beat : hot && !disabled ? T.lineStrong : T.line,
+                background: selected
+                  ? 'linear-gradient(180deg, rgba(255,207,77,0.16) 0%, rgba(255,207,77,0.06) 100%)'
+                  : hot && !disabled
+                    ? 'linear-gradient(180deg, rgba(42,53,74,0.98) 0%, rgba(27,34,49,0.98) 100%)'
+                    : 'linear-gradient(180deg, rgba(31,39,56,0.95) 0%, rgba(21,27,39,0.95) 100%)',
+                transform: hot && !disabled ? 'translateY(-2px)' : 'translateY(0)',
+                boxShadow: selected ? `0 0 0 1px ${T.beat}, ${T.shadowMd}`
+                  : hot && !disabled ? T.shadowMd : T.shadowSm,
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 9, color: T.textFaint, letterSpacing: 1 }}>{hotkey}</span>
+              <div style={cardTop}>
+                <span style={{ ...label, fontSize: T.size.micro, letterSpacing: 1 }}>{hotkey}</span>
                 <span style={beatChip(a.cost, disabled)}>{a.cost}</span>
               </div>
               <div style={{
-                fontSize: 12, color: disabled ? T.textFaint : T.text,
-                marginTop: 4, fontWeight: 600, lineHeight: 1.2,
+                fontFamily: FONT.ui,
+                fontSize: T.size.body,
+                color: disabled ? T.textFaint : T.text,
+                marginTop: S.xs + 1,
+                fontWeight: 600,
+                lineHeight: 1.2,
               }}>
                 {a.label}
               </div>
               {a.cooldownBeats != null && a.cooldownBeats > 0 && (
-                <div style={{ fontSize: 9, color: T.threat, marginTop: 2 }}>
+                <div style={{ ...num, fontSize: T.size.micro, color: T.threat, marginTop: 2 }}>
                   {a.cooldownBeats} Beats
                 </div>
               )}
@@ -99,11 +121,14 @@ export const ActionBar: React.FC<Props> = ({ actions, selectedId, form, onAction
       </div>
 
       <div style={hint}>
-        <span style={{ color: form === 'bear' ? T.bear : T.info }}>
-          {form === 'bear' ? '◆ Bear Form' : '◆ Caster Form'}
+        <span style={{
+          color: form === 'bear' ? T.bear : T.info,
+          fontWeight: 600, fontSize: T.size.small,
+        }}>
+          ◆ {form === 'bear' ? 'Bear Form' : 'Caster Form'}
         </span>
-        <span style={{ color: T.textFaint }}>
-          WASD/QEZC move · click to move or strike · Space waits · Tab toggles step hints
+        <span style={{ color: T.textFaint, fontSize: T.size.tiny }}>
+          WASD/QEZC step · click to move or strike · Space waits · Tab toggles hints
         </span>
       </div>
     </div>
@@ -111,29 +136,46 @@ export const ActionBar: React.FC<Props> = ({ actions, selectedId, form, onAction
 };
 
 const wrap: React.CSSProperties = {
-  position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)',
-  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, zIndex: 20,
+  position: 'absolute', bottom: S.md, left: '50%', transform: 'translateX(-50%)',
+  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: S.sm,
+  zIndex: 20, pointerEvents: 'none',
 };
 
-const row: React.CSSProperties = { display: 'flex', gap: 6 };
+const row: React.CSSProperties = { display: 'flex', gap: S.sm - 2, pointerEvents: 'auto' };
 
 const card: React.CSSProperties = {
-  width: 104, minHeight: 62, padding: '6px 8px',
-  border: `1px solid ${T.lineStrong}`, borderRadius: T.radius,
-  color: T.text, fontFamily: T.mono, textAlign: 'left',
-  transition: 'background 120ms, border-color 120ms',
+  width: 110, minHeight: 66, padding: `${S.sm - 1}px ${S.sm + 2}px`,
+  border: `1px solid ${T.line}`, borderRadius: T.radius,
+  color: T.text, textAlign: 'left',
+  transition: `transform 160ms ${EASE}, box-shadow 160ms ${EASE}, border-color 160ms ${EASE}, background 160ms ${EASE}`,
+};
+
+const cardTop: React.CSSProperties = {
+  display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: S.sm,
 };
 
 const tooltip: React.CSSProperties = {
-  ...panel, padding: '10px 12px', maxWidth: 380, marginBottom: 2,
+  ...panel,
+  padding: `${S.md}px ${S.lg - 2}px`,
+  maxWidth: 400, marginBottom: 2,
+  boxShadow: T.shadowLg,
+  pointerEvents: 'none',
 };
 
 const tagChip: React.CSSProperties = {
-  fontSize: 9, color: T.textMuted, background: 'rgba(255,255,255,0.05)',
-  border: `1px solid ${T.line}`, borderRadius: 3, padding: '1px 4px',
+  fontFamily: FONT.ui,
+  fontSize: T.size.micro, color: T.textMuted,
+  background: 'rgba(255,255,255,0.05)',
+  border: `1px solid ${T.line}`, borderRadius: 3,
+  padding: '2px 6px', letterSpacing: 0.4,
+};
+
+const costNote: React.CSSProperties = {
+  marginTop: S.sm + 2, paddingTop: S.sm, borderTop: `1px solid ${T.line}`,
+  color: T.textFaint, fontSize: T.size.tiny, lineHeight: 1.5,
 };
 
 const hint: React.CSSProperties = {
-  display: 'flex', gap: 14, alignItems: 'center',
-  fontFamily: T.mono, fontSize: 10,
+  display: 'flex', gap: S.lg, alignItems: 'center',
+  fontFamily: FONT.ui, pointerEvents: 'none',
 };

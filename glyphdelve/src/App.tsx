@@ -18,7 +18,7 @@ import { SettingsPanel } from './ui/panels/SettingsPanel';
 import { SidePanel } from './ui/panels/SidePanel';
 import { BuildSummary } from './ui/panels/BuildSummary';
 import { getCurrentFloorMap } from './engine/RunState';
-import { T, panel } from './ui/theme';
+import { T, S, FONT, panel, label, num, EASE } from './ui/theme';
 
 initializeRegistry();
 
@@ -125,7 +125,7 @@ const App: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
-            <label style={{ fontFamily: T.mono, fontSize: 11, color: T.textMuted }}>Seed</label>
+            <label style={{ fontFamily: FONT.ui, fontSize: 11, color: T.textMuted }}>Seed</label>
             <input
               style={seedInput}
               type="number"
@@ -138,7 +138,7 @@ const App: React.FC = () => {
           <button style={startBtn} onClick={() => startNewRun(seed)}>Begin Delve</button>
           <button style={smallBtn} onClick={() => setShowSettings(true)}>Settings</button>
 
-          <div style={{ fontFamily: T.mono, fontSize: 10, color: T.textFaint, marginTop: 10, textAlign: 'center', lineHeight: 1.7 }}>
+          <div style={{ fontFamily: FONT.ui, fontSize: 10, color: T.textFaint, marginTop: 10, textAlign: 'center', lineHeight: 1.7 }}>
             WASD / QEZC — step &nbsp;·&nbsp; Click — move or strike &nbsp;·&nbsp; Space — wait one Beat<br />
             1–9 — skills &nbsp;·&nbsp; Tab — step hints &nbsp;·&nbsp; F5 — restart this seed
           </div>
@@ -309,11 +309,11 @@ const App: React.FC = () => {
 const Pitch: React.FC<{ n: string; text: string }> = ({ n, text }) => (
   <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', maxWidth: 440 }}>
     <span style={{
-      fontFamily: T.mono, fontSize: 10, color: T.beat, border: '1px solid rgba(255,213,79,0.4)',
+      fontFamily: FONT.ui, fontSize: 10, color: T.beat, border: '1px solid rgba(255,213,79,0.4)',
       borderRadius: 10, width: 18, height: 18, display: 'flex',
       alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1,
     }}>{n}</span>
-    <span style={{ fontFamily: T.mono, fontSize: 11.5, color: T.textMuted, lineHeight: 1.55 }}>{text}</span>
+    <span style={{ fontFamily: FONT.ui, fontSize: 11.5, color: T.textMuted, lineHeight: 1.55 }}>{text}</span>
   </div>
 );
 
@@ -328,8 +328,8 @@ const EndScreen: React.FC<{
   onPrimary: () => void; primaryLabel: string; onSecondary: () => void;
 }> = ({ title, colour, subtitle, state, onPrimary, primaryLabel, onSecondary }) => (
   <div style={{ ...overlayStyle, flexDirection: 'column', gap: 14 }}>
-    <h1 style={{ fontSize: 38, color: colour, fontFamily: T.mono, letterSpacing: 6, margin: 0 }}>{title}</h1>
-    <p style={{ color: T.textMuted, fontFamily: T.mono, fontSize: 13, margin: 0 }}>{subtitle}</p>
+    <h1 style={{ fontSize: 38, color: colour, fontFamily: FONT.ui, letterSpacing: 6, margin: 0 }}>{title}</h1>
+    <p style={{ color: T.textMuted, fontFamily: FONT.ui, fontSize: 13, margin: 0 }}>{subtitle}</p>
     <div style={{ ...panel, padding: '14px 22px', fontSize: 12, lineHeight: 1.9, color: T.textMuted }}>
       <div>Level {state.player.level} · {state.killCount} slain · {state.meldHistory.length} melds</div>
       <div>Floor {state.floor} · Seed {state.seed}</div>
@@ -347,44 +347,59 @@ const EndScreen: React.FC<{
 // --- Styles ------------------------------------------------------
 
 const menuWrap: React.CSSProperties = {
-  width: '100vw', height: '100vh', background: T.bg,
+  width: '100vw', height: '100vh',
+  background: 'radial-gradient(ellipse at 50% 42%, #18202f 0%, #0b0e15 55%, #06080c 100%)',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
 const menuInner: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 13, padding: 20,
 };
 const title: React.CSSProperties = {
-  fontSize: 46, color: T.text, fontFamily: T.mono, letterSpacing: 10,
-  margin: 0, textShadow: '0 0 28px rgba(79,195,247,0.25)',
+  fontSize: T.size.display, color: T.text, fontFamily: FONT.ui,
+  fontWeight: 700, letterSpacing: 9, margin: 0,
+  textShadow: '0 0 36px rgba(79,195,247,0.22), 0 2px 0 rgba(0,0,0,0.5)',
 };
 const tagline: React.CSSProperties = {
-  fontSize: 12, color: T.textMuted, fontFamily: T.mono, margin: 0, letterSpacing: 1,
+  fontSize: T.size.body, color: T.textMuted, fontFamily: FONT.ui,
+  margin: 0, letterSpacing: 0.6,
 };
 const pitch: React.CSSProperties = {
-  display: 'flex', flexDirection: 'column', gap: 8, margin: '10px 0 2px',
+  display: 'flex', flexDirection: 'column', gap: S.md,
+  margin: `${S.lg}px 0 ${S.sm}px`,
+  padding: `${S.lg}px ${S.xl}px`,
+  background: 'rgba(20,26,38,0.55)',
+  border: `1px solid ${T.line}`, borderRadius: T.radiusLg,
 };
 const seedInput: React.CSSProperties = {
-  width: 120, padding: '5px 8px', background: T.surface,
+  width: 124, padding: '6px 9px', background: T.surface,
   border: `1px solid ${T.line}`, borderRadius: 4, color: T.text,
-  fontFamily: T.mono, fontSize: 12,
+  ...num, fontSize: T.size.body,
 };
 const startBtn: React.CSSProperties = {
-  padding: '12px 40px', background: '#2e7d4f', color: '#fff', border: 'none',
-  borderRadius: T.radius, fontSize: 15, fontWeight: 700, cursor: 'pointer',
-  fontFamily: T.mono, letterSpacing: 2,
+  padding: '13px 44px',
+  background: 'linear-gradient(180deg, #3a9b63 0%, #2a7049 100%)',
+  color: '#fff', border: '1px solid rgba(255,255,255,0.14)',
+  borderRadius: T.radius, fontSize: T.size.lead, fontWeight: 700,
+  cursor: 'pointer', fontFamily: FONT.ui, letterSpacing: 1.6,
+  boxShadow: '0 6px 20px rgba(42,112,73,0.35), inset 0 1px 0 rgba(255,255,255,0.18)',
+  transition: `transform 160ms ${EASE}, box-shadow 160ms ${EASE}`,
 };
 const smallBtn: React.CSSProperties = {
-  padding: '7px 18px', background: T.surfaceRaised, color: T.textMuted,
-  border: `1px solid ${T.line}`, borderRadius: 4, fontSize: 11,
-  cursor: 'pointer', fontFamily: T.mono,
+  padding: '8px 20px', background: T.surfaceRaised, color: T.textMuted,
+  border: `1px solid ${T.line}`, borderRadius: 4, fontSize: T.size.small,
+  cursor: 'pointer', fontFamily: FONT.ui, fontWeight: 500,
+  transition: `background 150ms ${EASE}, color 150ms ${EASE}`,
 };
 const choiceBtn: React.CSSProperties = {
-  display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center',
-  padding: '12px 16px', width: 134, background: T.surfaceRaised,
+  display: 'flex', flexDirection: 'column', gap: S.xs + 1, alignItems: 'center',
+  padding: `${S.lg - 2}px ${S.lg}px`, width: 148, background: T.surfaceRaised,
   border: `1px solid ${T.lineStrong}`, borderRadius: T.radius,
-  cursor: 'pointer', fontFamily: T.mono, fontSize: 12, color: T.text,
+  cursor: 'pointer', fontFamily: FONT.ui, fontSize: T.size.body, color: T.text,
+  transition: `transform 160ms ${EASE}, border-color 160ms ${EASE}`,
 };
-const choiceSub: React.CSSProperties = { fontSize: 9.5, color: T.textFaint, lineHeight: 1.4 };
+const choiceSub: React.CSSProperties = {
+  fontSize: T.size.micro, color: T.textFaint, lineHeight: 1.45, textAlign: 'center',
+};
 const gameWrap: React.CSSProperties = {
   width: '100vw', height: '100vh', background: T.bg, position: 'relative', overflow: 'hidden',
 };
@@ -399,10 +414,12 @@ const overlayStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 70,
 };
 const cardTitle: React.CSSProperties = {
-  fontSize: 21, color: T.text, fontFamily: T.mono, margin: '0 0 10px',
+  fontSize: T.size.h2, color: T.text, fontFamily: FONT.ui,
+  fontWeight: 700, margin: `0 0 ${S.md}px`, letterSpacing: -0.2,
 };
 const cardBody: React.CSSProperties = {
-  fontSize: 12.5, color: T.textMuted, fontFamily: T.mono, margin: '0 0 6px', lineHeight: 1.6,
+  fontSize: T.size.body, color: T.textMuted, fontFamily: FONT.ui,
+  margin: `0 0 ${S.sm - 2}px`, lineHeight: 1.65,
 };
 
 export default App;

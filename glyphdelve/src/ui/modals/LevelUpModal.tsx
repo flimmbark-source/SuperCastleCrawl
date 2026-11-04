@@ -1,249 +1,212 @@
-import React, { useState } from 'react';
-import type { LevelUpOffer, Tag, SynergyRating } from '../../types';
+// ============================================================
+// Glyphdelve - Level Up
+//
+// The build-crafting beat. Information hierarchy on each card, in order:
+// what it is, what it does in a sentence, what tags it carries, and how well
+// it fits the build you already have. Synergy is shown because the offer
+// generator genuinely weights toward your tags — the player should be able to
+// see the system working on their behalf.
+// ============================================================
 
-interface LevelUpModalProps {
+import React, { useState } from 'react';
+import type { LevelUpOffer } from '../../types';
+import { T, S, FONT, panel, label, RARITY, RARITY_GLOW, EASE } from '../theme';
+
+interface Props {
   offers: LevelUpOffer[];
   playerLevel: number;
   onChoose: (offerId: string) => void;
   tooltipMode: 'plain' | 'detailed';
 }
 
-export const LevelUpModal: React.FC<LevelUpModalProps> = ({ offers, playerLevel, onChoose, tooltipMode }) => {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+const TYPE_META = {
+  skill: { label: 'Skill', colour: '#4fc3f7' },
+  skill_upgrade: { label: 'Upgrade', colour: '#ff9f43' },
+  passive: { label: 'Passive', colour: '#c58af9' },
+} as const;
+
+const SYNERGY_META = {
+  High: { colour: '#5ec47d', pips: 3, note: 'Strongly matches your build' },
+  Med: { colour: '#ffcf4d', pips: 2, note: 'Partly matches your build' },
+  Low: { colour: '#6c7789', pips: 1, note: 'A new direction' },
+} as const;
+
+export const LevelUpModal: React.FC<Props> = ({
+  offers, playerLevel, onChoose, tooltipMode,
+}) => {
+  const [hovered, setHovered] = useState<string | null>(null);
 
   return (
-    <div style={styles.overlay}>
-      <div style={styles.modal}>
-        <h2 style={styles.title}>Level Up! → Level {playerLevel}</h2>
-        <p style={styles.subtitle}>Choose one of 5 options to add to your build:</p>
-        <div style={styles.cardRow}>
-          {offers.map(offer => (
-            <OfferCard
+    <div style={overlay} role="dialog" aria-label={`Level ${playerLevel} reward`}>
+      <div style={{ textAlign: 'center', marginBottom: S.xl }}>
+        <div style={{ ...label, color: T.beat }}>Level {playerLevel}</div>
+        <h2 style={title}>Shape the build</h2>
+        <p style={subtitle}>
+          Offers lean toward the tags you already carry. Take one.
+        </p>
+      </div>
+
+      <div style={cardRow}>
+        {offers.map(offer => {
+          const type = TYPE_META[offer.type];
+          const syn = SYNERGY_META[offer.synergy];
+          const hot = hovered === offer.id;
+
+          return (
+            <button
               key={offer.id}
-              offer={offer}
-              expanded={expandedId === offer.id}
-              onToggleExpand={() => setExpandedId(expandedId === offer.id ? null : offer.id)}
-              onChoose={() => onChoose(offer.id)}
-              tooltipMode={tooltipMode}
-            />
-          ))}
-        </div>
+              onClick={() => onChoose(offer.id)}
+              onMouseEnter={() => setHovered(offer.id)}
+              onMouseLeave={() => setHovered(null)}
+              onFocus={() => setHovered(offer.id)}
+              onBlur={() => setHovered(null)}
+              aria-label={`${offer.name}, ${type.label}, ${offer.rarity}, ${offer.synergy} synergy`}
+              style={{
+                ...card,
+                borderColor: hot ? RARITY[offer.rarity] : T.line,
+                transform: hot ? 'translateY(-6px)' : 'translateY(0)',
+                boxShadow: hot
+                  ? `0 18px 44px rgba(0,0,0,0.6), 0 0 0 1px ${RARITY[offer.rarity]}, 0 0 34px ${RARITY_GLOW[offer.rarity]}`
+                  : T.shadowMd,
+              }}
+            >
+              {/* Rarity spine: the fastest read on the card. */}
+              <div style={{
+                position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
+                background: RARITY[offer.rarity],
+                borderTopLeftRadius: T.radiusLg, borderBottomLeftRadius: T.radiusLg,
+              }} />
+
+              <div style={badgeRow}>
+                <span style={{ ...typeBadge, color: type.colour, borderColor: `${type.colour}55` }}>
+                  {type.label}
+                </span>
+                <span style={{ ...label, color: RARITY[offer.rarity], fontSize: 8.5 }}>
+                  {offer.rarity}
+                </span>
+              </div>
+
+              <h3 style={cardTitle}>{offer.name}</h3>
+
+              <p style={triggerText}>{offer.triggerSentence}</p>
+
+              {tooltipMode === 'detailed' && offer.description && (
+                <p style={descText}>{offer.description}</p>
+              )}
+
+              <div style={tagRow}>
+                {offer.tags.slice(0, 4).map(t => (
+                  <span key={t} style={tagChip}>{t}</span>
+                ))}
+              </div>
+
+              <div style={{ flex: 1 }} />
+
+              <div style={synergyRow}>
+                <span style={{ display: 'flex', gap: 2 }}>
+                  {[0, 1, 2].map(i => (
+                    <span
+                      key={i}
+                      style={{
+                        width: 5, height: 5, borderRadius: 3,
+                        background: i < syn.pips ? syn.colour : T.line,
+                      }}
+                    />
+                  ))}
+                </span>
+                <span style={{ color: syn.colour, fontSize: T.size.tiny, fontWeight: 600 }}>
+                  {syn.note}
+                </span>
+              </div>
+
+              {offer.synergyNote && (
+                <div style={{
+                  fontSize: T.size.micro, color: T.textFaint,
+                  marginTop: S.xs, lineHeight: 1.45,
+                  maxHeight: hot ? 60 : 0, overflow: 'hidden',
+                  transition: `max-height 220ms ${EASE}`,
+                }}>
+                  {offer.synergyNote}
+                </div>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
 };
 
-interface OfferCardProps {
-  offer: LevelUpOffer;
-  expanded: boolean;
-  onToggleExpand: () => void;
-  onChoose: () => void;
-  tooltipMode: 'plain' | 'detailed';
-}
-
-const OfferCard: React.FC<OfferCardProps> = ({ offer, expanded, onToggleExpand, onChoose, tooltipMode }) => {
-  const synergyColor = offer.synergy === 'High' ? '#4caf50' : offer.synergy === 'Med' ? '#ffc107' : '#9e9e9e';
-  const typeColor = offer.type === 'skill' ? '#4fc3f7' : offer.type === 'skill_upgrade' ? '#ff9800' : '#ab47bc';
-  const typeLabel = offer.type === 'skill' ? 'SKILL' : offer.type === 'skill_upgrade' ? 'UPGRADE' : 'PASSIVE';
-  const rarityColor = offer.rarity === 'Common' ? '#9e9e9e' : offer.rarity === 'Uncommon' ? '#4fc3f7' : '#ff9800';
-
-  return (
-    <div style={{
-      ...styles.card,
-      borderColor: synergyColor,
-    }}>
-      {/* Type badge */}
-      <div style={{ ...styles.typeBadge, backgroundColor: typeColor }}>{typeLabel}</div>
-      <div style={{ ...styles.rarityBadge, color: rarityColor }}>{offer.rarity}</div>
-
-      <h3 style={styles.cardTitle}>{offer.name}</h3>
-
-      {/* Information hierarchy: 1. Plain effect, 2. Tags, 3. Trigger, 4. Numbers, 5. Synergy */}
-      <p style={styles.cardDesc}>{offer.description}</p>
-
-      {/* Tags */}
-      <div style={styles.tagRow}>
-        {offer.tags.map(t => (
-          <span key={t} style={styles.tag}>{t}</span>
-        ))}
-      </div>
-
-      {/* Trigger sentence */}
-      <p style={styles.triggerText}>{offer.triggerSentence}</p>
-
-      {/* Synergy indicator */}
-      <div style={{ ...styles.synergyBadge, backgroundColor: synergyColor }}>
-        Synergy: {offer.synergy}
-        <span style={styles.synergyIcon}>
-          {offer.synergy === 'High' ? ' ★★★' : offer.synergy === 'Med' ? ' ★★' : ' ★'}
-        </span>
-      </div>
-
-      {/* Expandable details */}
-      {tooltipMode === 'detailed' && (
-        <button onClick={onToggleExpand} style={styles.expandBtn}>
-          {expanded ? '▲ Less' : '▼ Details'}
-        </button>
-      )}
-      {expanded && (
-        <div style={styles.expandedSection}>
-          <p style={styles.detailText}>{offer.synergyNote}</p>
-          <p style={styles.detailText}>Weight: {offer.finalWeight.toFixed(2)}</p>
-        </div>
-      )}
-
-      <button onClick={onChoose} style={styles.chooseBtn}>Choose</button>
-    </div>
-  );
+const overlay: React.CSSProperties = {
+  position: 'fixed', inset: 0,
+  background: 'radial-gradient(ellipse at center, rgba(16,20,30,0.96) 0%, rgba(6,8,13,0.98) 70%)',
+  display: 'flex', flexDirection: 'column',
+  alignItems: 'center', justifyContent: 'center',
+  zIndex: 80, padding: S.lg,
 };
 
-const styles: Record<string, React.CSSProperties> = {
-  overlay: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 100,
-  },
-  modal: {
-    backgroundColor: '#1a1a2e',
-    borderRadius: 12,
-    padding: '20px 24px',
-    maxWidth: '95vw',
-    maxHeight: '90vh',
-    overflowY: 'auto',
-  },
-  title: {
-    color: '#ffd54f',
-    fontFamily: 'monospace',
-    fontSize: 20,
-    margin: '0 0 4px',
-    textAlign: 'center',
-  },
-  subtitle: {
-    color: '#888',
-    fontFamily: 'monospace',
-    fontSize: 12,
-    textAlign: 'center',
-    margin: '0 0 16px',
-  },
-  cardRow: {
-    display: 'flex',
-    gap: 10,
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-  },
-  card: {
-    width: 170,
-    backgroundColor: '#252538',
-    border: '2px solid #555',
-    borderRadius: 8,
-    padding: '10px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 6,
-    position: 'relative',
-  },
-  typeBadge: {
-    display: 'inline-block',
-    fontSize: 9,
-    fontWeight: 'bold',
-    color: '#fff',
-    padding: '2px 6px',
-    borderRadius: 3,
-    fontFamily: 'monospace',
-    alignSelf: 'flex-start',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  rarityBadge: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    fontSize: 9,
-    fontFamily: 'monospace',
-  },
-  cardTitle: {
-    color: '#e0e0e0',
-    fontFamily: 'monospace',
-    fontSize: 13,
-    margin: 0,
-  },
-  cardDesc: {
-    color: '#bbb',
-    fontFamily: 'monospace',
-    fontSize: 10,
-    margin: 0,
-    lineHeight: 1.4,
-  },
-  tagRow: {
-    display: 'flex',
-    gap: 3,
-    flexWrap: 'wrap',
-  },
-  tag: {
-    fontSize: 9,
-    color: '#ddd',
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    padding: '1px 5px',
-    borderRadius: 3,
-    fontFamily: 'monospace',
-  },
-  triggerText: {
-    color: '#90caf9',
-    fontFamily: 'monospace',
-    fontSize: 9,
-    margin: 0,
-    fontStyle: 'italic',
-  },
-  synergyBadge: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    fontSize: 10,
-    color: '#000',
-    padding: '2px 8px',
-    borderRadius: 3,
-    fontFamily: 'monospace',
-    fontWeight: 'bold',
-    alignSelf: 'flex-start',
-  },
-  synergyIcon: {
-    marginLeft: 2,
-    fontSize: 10,
-  },
-  expandBtn: {
-    background: 'none',
-    border: '1px solid #444',
-    borderRadius: 3,
-    color: '#888',
-    fontSize: 9,
-    fontFamily: 'monospace',
-    cursor: 'pointer',
-    padding: '2px 6px',
-    alignSelf: 'flex-start',
-  },
-  expandedSection: {
-    borderTop: '1px solid #333',
-    paddingTop: 6,
-  },
-  detailText: {
-    color: '#777',
-    fontFamily: 'monospace',
-    fontSize: 9,
-    margin: '2px 0',
-  },
-  chooseBtn: {
-    marginTop: 'auto',
-    padding: '6px 12px',
-    backgroundColor: '#4fc3f7',
-    color: '#000',
-    border: 'none',
-    borderRadius: 4,
-    fontFamily: 'monospace',
-    fontWeight: 'bold',
-    fontSize: 12,
-    cursor: 'pointer',
-  },
+const title: React.CSSProperties = {
+  fontFamily: FONT.ui, fontSize: T.size.h1, fontWeight: 700,
+  color: T.text, margin: `${S.xs}px 0 0`, letterSpacing: -0.4,
+};
+
+const subtitle: React.CSSProperties = {
+  fontFamily: FONT.ui, fontSize: T.size.body, color: T.textMuted,
+  margin: `${S.sm}px 0 0`,
+};
+
+const cardRow: React.CSSProperties = {
+  display: 'flex', gap: S.md, flexWrap: 'wrap', justifyContent: 'center',
+  maxWidth: 1180,
+};
+
+const card: React.CSSProperties = {
+  ...panel,
+  position: 'relative',
+  width: 212, minHeight: 268,
+  padding: `${S.md}px ${S.md}px ${S.md}px ${S.md + 3}px`,
+  display: 'flex', flexDirection: 'column',
+  textAlign: 'left', cursor: 'pointer',
+  overflow: 'hidden',
+  transition: `transform 200ms ${EASE}, box-shadow 200ms ${EASE}, border-color 200ms ${EASE}`,
+};
+
+const badgeRow: React.CSSProperties = {
+  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+};
+
+const typeBadge: React.CSSProperties = {
+  ...label, fontSize: 8.5, padding: '2px 6px',
+  border: '1px solid', borderRadius: 3,
+};
+
+const cardTitle: React.CSSProperties = {
+  fontFamily: FONT.ui, fontSize: T.size.h3, fontWeight: 700,
+  color: T.text, margin: `${S.sm + 2}px 0 ${S.sm}px`, lineHeight: 1.18,
+  letterSpacing: -0.2,
+};
+
+const triggerText: React.CSSProperties = {
+  fontFamily: FONT.ui, fontSize: T.size.small, color: T.textMuted,
+  lineHeight: 1.55, margin: 0,
+};
+
+const descText: React.CSSProperties = {
+  fontFamily: FONT.ui, fontSize: T.size.tiny, color: T.textFaint,
+  lineHeight: 1.5, margin: `${S.sm}px 0 0`, fontStyle: 'italic',
+};
+
+const tagRow: React.CSSProperties = {
+  display: 'flex', gap: S.xs, flexWrap: 'wrap', marginTop: S.sm + 2,
+};
+
+const tagChip: React.CSSProperties = {
+  fontFamily: FONT.ui, fontSize: 8.5, color: T.textMuted,
+  background: 'rgba(255,255,255,0.05)', border: `1px solid ${T.line}`,
+  borderRadius: 3, padding: '2px 5px', letterSpacing: 0.3,
+};
+
+const synergyRow: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: S.sm,
+  marginTop: S.md, paddingTop: S.sm, borderTop: `1px solid ${T.line}`,
 };

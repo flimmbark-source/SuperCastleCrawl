@@ -90,3 +90,44 @@ describe('opening balance', () => {
     }
   });
 });
+
+describe('Delve Pressure', () => {
+  it('rises only after the grace period, so crossing a room is free', async () => {
+    const { makeEngine: mk } = await import('./helpers');
+    const { engine } = mk(301);
+    engine.startRoom('combat', 1, ['stone_golem'], false);
+    // Walk about without engaging for a short while.
+    for (let i = 0; i < 6; i++) engine.performWait();
+    expect(engine.snapshot().pressure).toBe(0);
+  });
+
+  it('is capped, so stalling is costly but never an instant execution', async () => {
+    const { makeEngine: mk } = await import('./helpers');
+    const { PRESSURE_MAX } = await import('../tactical');
+    const { engine } = mk(302);
+    engine.startRoom('combat', 1, ['stone_golem'], false);
+    // Stall far longer than any real fight would last.
+    for (let i = 0; i < 400 && engine.outcome === 'ongoing'; i++) engine.performWait();
+    expect(engine.snapshot().pressure).toBeLessThanOrEqual(PRESSURE_MAX);
+  });
+
+  it('resets when the player kills something', async () => {
+    const { makeEngine: mk } = await import('./helpers');
+    const { livingEnemies } = await import('../combat');
+    const { engine } = mk(303);
+    engine.startRoom('combat', 1, ['stone_golem', 'skeleton_chaser'], false);
+    for (let i = 0; i < 60 && engine.outcome === 'ongoing'; i++) engine.performWait();
+    expect(engine.snapshot().pressure).toBeGreaterThan(0);
+
+    // Kill through the real path: a finishing blow from an actual action.
+    const target = livingEnemies(engine.ctx)[0];
+    target.hp = 1;
+    target.tile = { x: engine.player.tile.x + 1, y: engine.player.tile.y };
+    engine.ctx.grid.set(target.tile.x, target.tile.y, 'floor');
+    const res = engine.performAttack(target.tile);
+
+    expect(res.ok).toBe(true);
+    expect(res.killed.length).toBeGreaterThan(0);
+    expect(engine.snapshot().pressure).toBe(0);
+  });
+});

@@ -8,7 +8,7 @@
 
 import React from 'react';
 import type { EncounterLootEntry } from '../../types';
-import { T, panel, RARITY, label } from '../theme';
+import { T, panel, RARITY, label, FONT, S } from '../theme';
 import { encounterLootIcon } from '../itemPresentation';
 
 interface Props {
@@ -28,20 +28,20 @@ export const LootModal: React.FC<Props> = ({ loot, onContinue }) => (
         {loot.map((item, i) => (
           <div key={`${item.id}_${i}`} style={{ ...card, borderLeft: `3px solid ${RARITY[item.rarity]}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
-              <span style={{ color: T.text, fontSize: 13, fontFamily: T.mono }}>
+              <span style={{ color: T.text, fontSize: 13, fontFamily: FONT.ui }}>
                 {encounterLootIcon(item)} {item.name}
               </span>
-              <span style={{ color: RARITY[item.rarity], fontSize: 10, fontFamily: T.mono }}>
+              <span style={{ color: RARITY[item.rarity], fontSize: 10, fontFamily: FONT.ui }}>
                 {item.rarity}
               </span>
             </div>
             {item.effectSummary && (
-              <div style={{ color: T.info, fontSize: 11, fontFamily: T.mono, marginTop: 5, lineHeight: 1.5 }}>
+              <div style={{ color: T.info, fontSize: 11, fontFamily: FONT.ui, marginTop: 5, lineHeight: 1.5 }}>
                 {item.effectSummary}
               </div>
             )}
             {item.description && (
-              <div style={{ color: T.textFaint, fontSize: 10.5, fontFamily: T.mono, marginTop: 3, lineHeight: 1.45 }}>
+              <div style={{ color: T.textFaint, fontSize: 10.5, fontFamily: FONT.ui, marginTop: 3, lineHeight: 1.45 }}>
                 {item.description}
               </div>
             )}
@@ -60,7 +60,7 @@ const overlay: React.CSSProperties = {
 };
 
 const title: React.CSSProperties = {
-  fontFamily: T.mono, fontSize: 20, color: T.text, margin: '4px 0 14px', letterSpacing: 1,
+  fontFamily: FONT.ui, fontSize: 20, color: T.text, margin: '4px 0 14px', letterSpacing: 1,
 };
 
 const list: React.CSSProperties = {
@@ -75,6 +75,6 @@ const card: React.CSSProperties = {
 
 const btn: React.CSSProperties = {
   width: '100%', padding: '11px 0', background: '#2e7d4f', color: '#fff',
-  border: 'none', borderRadius: T.radius, fontFamily: T.mono,
+  border: 'none', borderRadius: T.radius, fontFamily: FONT.ui,
   fontSize: 13, fontWeight: 700, letterSpacing: 1.5, cursor: 'pointer',
 };

@@ -92,6 +92,12 @@ export type RoomOutcome = 'ongoing' | 'cleared' | 'defeat';
 export const PRESSURE_INTERVAL = 18;
 /** Grace at the start of a room, so simply crossing it costs nothing. */
 export const PRESSURE_GRACE = 14;
+/**
+ * Ceiling on Delve Pressure. It exists to make stalling expensive, not to
+ * execute the player: left uncapped a stalled room reached +26 bonus damage,
+ * which kills outright regardless of how well the fight was being played.
+ */
+export const PRESSURE_MAX = 8;
 
 export interface RoomStats {
   beatsSpent: number;
@@ -866,7 +872,8 @@ export class TacticalEngine {
       this.beatsSinceKill += cost;
       while (this.beatsSinceKill >= PRESSURE_INTERVAL) {
         this.beatsSinceKill -= PRESSURE_INTERVAL;
-        this.ctx.pressure += 1;
+        if (this.ctx.pressure >= PRESSURE_MAX) break;
+        this.ctx.pressure = Math.min(PRESSURE_MAX, this.ctx.pressure + 1);
         logLine(this.ctx, 'system',
           `The delve presses in — enemies hit for +${this.ctx.pressure}`, true);
       }

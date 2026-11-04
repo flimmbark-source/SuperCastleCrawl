@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import type { RunState } from '../../types';
 import type { TacticalSnapshot } from '../../core/tactical';
-import { T, panel, label, RARITY } from '../theme';
+import { T, panel, label, RARITY, FONT, S } from '../theme';
 import { inventoryItemIcon } from '../itemPresentation';
 
 interface Props {
@@ -189,13 +189,13 @@ const body: React.CSSProperties = { padding: '9px 10px', overflowY: 'auto' };
 
 const tabChip: React.CSSProperties = {
   padding: '3px 9px', border: '1px solid transparent', borderRadius: 4,
-  fontFamily: T.mono, fontSize: 10, cursor: 'pointer', textTransform: 'uppercase',
+  fontFamily: FONT.ui, fontSize: 10, cursor: 'pointer', textTransform: 'uppercase',
   letterSpacing: 0.8, background: 'transparent',
 };
 
 const closeBtn: React.CSSProperties = {
   background: 'transparent', border: 'none', color: T.textFaint,
-  cursor: 'pointer', fontSize: 11, fontFamily: T.mono,
+  cursor: 'pointer', fontSize: 11, fontFamily: FONT.ui,
 };
 
 const tabBtn: React.CSSProperties = {
@@ -208,7 +208,7 @@ const row: React.CSSProperties = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
   gap: 6, padding: '3px 5px', marginBottom: 2,
   background: 'rgba(255,255,255,0.03)', borderRadius: 3,
-  fontFamily: T.mono,
+  fontFamily: FONT.ui,
 };
 
 const useBtn: React.CSSProperties = {
